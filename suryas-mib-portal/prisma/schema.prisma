@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SYSTEM_ADMIN
+  MANAGING_PARTNER
+  RECOMMENDER
+  EMPLOYEE
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  REJECTED
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_RECOMMENDATION
+  PENDING_FINAL_APPROVAL
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+  CANCELLED
+}
+
+enum LeaveType {
+  CASUAL
+  MEDICAL
+  LOP
+}
+
+enum HalfDaySession {
+  MORNING
+  AFTERNOON
+}
+
+enum WorkflowMode {
+  ALL
+  ANY
+}
+
+enum DecisionType {
+  APPROVE
+  REJECT
+  REQUEST_CHANGES
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+}
+
+model User {
+  id                    String                @id @default(cuid())
+  employeeId            String                @unique
+  name                  String
+  email                 String                @unique
+  phone                 String?
+  passwordHash          String
+  role                  UserRole              @default(EMPLOYEE)
+  departmentId          String?
+  department            Department?           @relation(fields: [departmentId], references: [id])
+  designation           String?
+  status                UserStatus            @default(PENDING)
+  lastLoginAt           DateTime?
+  approvedById          String?
+  approvedBy            User?                 @relation("UserApprovals", fields: [approvedById], references: [id])
+  approvedUsers         User[]                @relation("UserApprovals")
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  registrationRequests  RegistrationRequest[]  @relation("RegistrationRequestsFromUser")
+  leaveRequests         LeaveRequest[]        @relation("LeaveRequestsByUser")
+  leaveBalances         LeaveBalance[]
+  workflowAssignments   WorkflowAssignment[]
+  workflowDecisions     WorkflowDecision[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]           @relation("AuditActor")
+}
+
+model RegistrationRequest {
+  id                String        @id @default(cuid())
+  employeeId        String        @unique
+  name              String
+  email             String        @unique
+  phone             String?
+  department        String?
+  designation       String?
+  requestedRole     UserRole
+  passwordHash      String
+  status            UserStatus    @default(PENDING)
+  remarks           String?
+  requestedByUserId String?
+  requestedByUser   User?         @relation("RegistrationRequestsFromUser", fields: [requestedByUserId], references: [id])
+  reviewedById      String?
+  reviewedByName    String?
+  reviewedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model LeavePolicy {
+  id                  String        @id @default(cuid())
+  name                String        @default("default")
+  casualDays          Int
+  medicalDays         Int
+  lopPolicyEnabled    Boolean       @default(true)
+  carryForwardEnabled Boolean       @default(false)
+  carryForwardLimit   Int           @default(0)
+  halfDayAllowed      Boolean       @default(true)
+  weekendPolicy       String        @default("SAT_SUN")
+  yearlyStartMonth    Int           @default(1)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  balances            LeaveBalance[]
+}
+
+model LeaveBalance {
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
+  policyId         String
+  policy           LeavePolicy @relation(fields: [policyId], references: [id])
+  casualAvailable  Int
+  medicalAvailable Int
+  lopAvailable     Int
+  year             Int
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@unique([userId, year])
+}
+
+model Holiday {
+  id          String   @id @default(cuid())
+  name        String
+  date        DateTime
+  isRecurring Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LeaveRequest {
+  id                   String              @id @default(cuid())
+  referenceNumber      String              @unique
+  employeeId           String
+  employee             User                @relation("LeaveRequestsByUser", fields: [employeeId], references: [id])
+  leaveType            LeaveType
+  startDate            DateTime
+  endDate              DateTime
+  isHalfDay            Boolean             @default(false)
+  halfDaySession       HalfDaySession?
+  reason               String
+  remarks              String?
+  status               RequestStatus       @default(SUBMITTED)
+  workflowMode         WorkflowMode        @default(ALL)
+  relevantPolicyId     String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  workflowAssignments  WorkflowAssignment[]
+  workflowDecisions    WorkflowDecision[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+}
+
+model WorkflowAssignment {
+  id            String      @id @default(cuid())
+  moduleType    String
+  moduleId      String
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  role          UserRole    @default(RECOMMENDER)
+  leaveRequestId String?
+  leaveRequest  LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([moduleType, moduleId, userId])
+}
+
+model WorkflowDecision {
+  id          String      @id @default(cuid())
+  moduleType  String
+  moduleId    String
+  reviewerId  String
+  reviewer    User        @relation(fields: [reviewerId], references: [id])
+  decision    DecisionType
+  remarks     String
+  createdAt   DateTime    @default(now())
+  leaveRequestId String?
+  leaveRequest LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+
+  @@unique([moduleType, moduleId, reviewerId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  leaveRequestId String?
+  leaveRequest LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id])
+  entityType String
+  entityId   String
+  action     String
+  details    Json?
+  createdAt  DateTime @default(now())
+  leaveRequestId String?
+  leaveRequest LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  resourceType  String
+  resourceId    String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+  uploadedAt   DateTime @default(now())
+}
+
+model ReferenceSequence {
+  id        String   @id @default(cuid())
+  prefix    String   @unique
+  year      Int
+  value     Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
