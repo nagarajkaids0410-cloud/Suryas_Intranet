@@ -43,3 +43,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+supabase/04_seed_audit_logs.sql
+supabase/03_heavy_requests.sql
