@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SURYA'S MiB ENTERPRISES - INTRANET PORTAL DATABASE SCHEMA
+-- INTRANET PORTAL DATABASE SCHEMA
 -- Target Database: PostgreSQL / Supabase
 -- ==============================================================================
 
