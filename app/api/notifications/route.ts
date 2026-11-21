@@ -4,7 +4,9 @@ import {
   markAsReadDB, 
   markAllAsReadDB,
   addNotificationDB,
-  readNotificationsDB 
+  addNotificationAndSyncDB,
+  readNotificationsDB,
+  fetchNotificationsFromSupabase
 } from '@/lib/notification-db';
 import { requireRole } from '@/lib/rbac';
 
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest) {
     const targetUsers = auth.role === 'admin' || auth.role === 'founder'
       ? [auth.username, auth.role]
       : [auth.username];
-    const notifications = getNotificationsByTargetDB(targetUsers);
+    const notifications = await fetchNotificationsFromSupabase(targetUsers);
 
     return NextResponse.json({ 
       success: true,
@@ -46,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const notification = addNotificationDB({
+    const notification = await addNotificationAndSyncDB({
       type,
       title,
       message: message || '',

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/rbac';
 import { findUserById } from '@/lib/user-database';
-import { createTasks, getTasks, TaskStatus, updateTask } from '@/lib/task-db';
+import { createTasks, createTasksAndSync, getTasks, fetchTasksFromSupabase, TaskStatus, updateTask, updateTaskAndSync } from '@/lib/task-db';
 import { getRequestsByTargetDB } from '@/lib/request-db';
 import { addAuditEntry } from '@/lib/audit-log';
 
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const auth = requireRole(request, [...roles]);
   if (auth instanceof NextResponse) return auth;
   try {
-    const tasks = getTasks();
+    const tasks = await fetchTasksFromSupabase();
     const teamProjectIds = new Set(
       getRequestsByTargetDB('all')
         .filter((request) => request.type === 'proposal' && request.payload?.projectTeam?.some((member: { userId?: string }) => member.userId === auth.id))
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     if (!creator || creator.status !== 'active') {
       return NextResponse.json({ error: 'An active administrator is required' }, { status: 403 });
     }
-    const tasks = createTasks(assignees.map((assignee: ReturnType<typeof findUserById>) => ({
+    const tasks = await createTasksAndSync(assignees.map((assignee: ReturnType<typeof findUserById>) => ({
       title,
       description,
       deadline,
@@ -103,7 +103,7 @@ export async function PATCH(request: NextRequest) {
       if (!comment || comment.length > 2000) {
         return NextResponse.json({ error: 'Enter a task comment of up to 2,000 characters' }, { status: 400 });
       }
-      const task = updateTask(taskId, (item) => item.comments.unshift({
+      const task = await updateTaskAndSync(taskId, (item) => item.comments.unshift({
         by: auth.username,
         byId: auth.id,
         comment,
@@ -126,7 +126,7 @@ export async function PATCH(request: NextRequest) {
       if (!assignee || assignee.status !== 'active' || !assigneeRoles.includes(assignee.role)) {
         return NextResponse.json({ error: 'Choose an active employee or intern as the new assignee' }, { status: 400 });
       }
-      const task = updateTask(taskId, (item) => {
+      const task = await updateTaskAndSync(taskId, (item) => {
         item.assignedToId = assignee.id;
         item.assignedToName = assignee.fullName;
         item.assignedToUsername = assignee.username;
@@ -156,7 +156,7 @@ export async function PATCH(request: NextRequest) {
     ) {
       return NextResponse.json({ error: 'Provide a valid task status, progress from 0 to 100, and non-empty comment' }, { status: 400 });
     }
-    const task = updateTask(taskId, (item) => {
+    const task = await updateTaskAndSync(taskId, (item) => {
       if (status !== undefined) item.status = status;
       if (progress !== undefined) item.progress = progress;
       if (comment) item.comments.unshift({

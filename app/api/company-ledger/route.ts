@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCompanyLedger, addLedgerTransaction } from '@/lib/company-ledger';
+import { getCompanyLedger, addLedgerTransaction, fetchLedgerFromSupabase, addLedgerTransactionAndSync } from '@/lib/company-ledger';
 import { requireRole } from '@/lib/rbac';
 
 export async function GET() {
   try {
-    const ledger = getCompanyLedger();
+    const ledger = await fetchLedgerFromSupabase();
     return NextResponse.json({ success: true, ledger });
   } catch (error) {
     console.error('Company ledger fetch error:', error);
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'amount, purpose and type are required' }, { status: 400 });
     }
 
-    const ledger = addLedgerTransaction({
+    const ledger = await addLedgerTransactionAndSync({
       amount: Number(amount),
       purpose,
       remarks,

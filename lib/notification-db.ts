@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { getSupabaseAdmin } from './supabase';
 
-interface Notification {
+export interface Notification {
   id: string;
   type: string;
   title: string;
@@ -14,36 +15,62 @@ interface Notification {
 }
 
 const DB_PATH = path.join(process.cwd(), '.data', 'notifications.json');
-type NewNotification = Omit<Notification, 'id' | 'timestamp'>;
+export type NewNotification = Omit<Notification, 'id' | 'timestamp'>;
+
+let cachedNotifications: Notification[] | undefined;
 
 function ensureDBDir() {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {}
   }
 }
 
 export function readNotificationsDB(): Notification[] {
-  ensureDBDir();
-  if (!fs.existsSync(DB_PATH)) {
-    return [];
-  }
   try {
+    ensureDBDir();
+    if (!fs.existsSync(DB_PATH)) {
+      return cachedNotifications || [];
+    }
     const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data) || [];
-  } catch (err) {
-    console.error('Error reading notifications DB:', err);
-    return [];
+    const parsed = JSON.parse(data) || [];
+    cachedNotifications = parsed;
+    return parsed;
+  } catch {
+    return cachedNotifications || [];
   }
 }
 
 export function writeNotificationsDB(notifications: Notification[]): void {
-  ensureDBDir();
+  cachedNotifications = notifications;
   try {
+    ensureDBDir();
     fs.writeFileSync(DB_PATH, JSON.stringify(notifications, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error writing notifications DB:', err);
+  } catch {
+    // Read-only filesystem on Netlify is expected
   }
+}
+
+export async function fetchNotificationsFromSupabase(targetUsers: string | string[]): Promise<Notification[]> {
+  const targets = Array.isArray(targetUsers) ? targetUsers : [targetUsers];
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .in('targetUser', [...targets, 'all'])
+      .order('timestamp', { ascending: false });
+
+    if (!error && data) {
+      cachedNotifications = data as Notification[];
+      return cachedNotifications;
+    }
+  } catch (err) {
+    console.warn('[Supabase fetchNotifications error]:', err);
+  }
+  return getNotificationsByTargetDB(targets);
 }
 
 export function addNotificationsDB(entries: NewNotification[]): Notification[] {
@@ -84,12 +111,36 @@ export function addNotificationsDB(entries: NewNotification[]): Notification[] {
   if (inserted.length > 0) {
     notifications.unshift(...inserted);
     writeNotificationsDB(notifications);
+
+    // Sync to Supabase in background
+    try {
+      const supabase = getSupabaseAdmin();
+      Promise.resolve(supabase.from('notifications').upsert(inserted)).catch(() => {});
+    } catch {}
+  }
+  return results;
+}
+
+export async function addNotificationsAndSyncDB(entries: NewNotification[]): Promise<Notification[]> {
+  const results = addNotificationsDB(entries);
+  if (results.length > 0) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from('notifications').upsert(results);
+    } catch (err) {
+      console.warn('[Supabase addNotificationsAndSyncDB error]:', err);
+    }
   }
   return results;
 }
 
 export function addNotificationDB(notification: NewNotification): Notification {
   return addNotificationsDB([notification])[0];
+}
+
+export async function addNotificationAndSyncDB(notification: NewNotification): Promise<Notification> {
+  const res = await addNotificationsAndSyncDB([notification]);
+  return res[0];
 }
 
 export function getNotificationsByTargetDB(targetUsers: string | string[]): Notification[] {
@@ -106,6 +157,13 @@ export function markAsReadDB(notificationId: string): boolean {
   if (index !== -1) {
     notifications[index].read = true;
     writeNotificationsDB(notifications);
+
+    // Sync to Supabase
+    try {
+      const supabase = getSupabaseAdmin();
+      Promise.resolve(supabase.from('notifications').update({ read: true }).eq('id', notificationId)).catch(() => {});
+    } catch {}
+
     return true;
   }
   return false;
@@ -118,6 +176,12 @@ export function markAllAsReadDB(targetUsers: string | string[]): void {
     (targets.includes(n.targetUser) || n.targetUser === 'all') ? { ...n, read: true } : n
   );
   writeNotificationsDB(updated);
+
+  // Sync to Supabase
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('notifications').update({ read: true }).in('targetUser', [...targets, 'all'])).catch(() => {});
+  } catch {}
 }
 
 export function markNotificationsByRelatedIdDB(
@@ -141,6 +205,12 @@ export function markNotificationsByRelatedIdDB(
 
   if (updatedCount > 0) {
     writeNotificationsDB(updated);
+
+    // Sync to Supabase
+    try {
+      const supabase = getSupabaseAdmin();
+      Promise.resolve(supabase.from('notifications').update({ read: true }).eq('relatedId', relatedId)).catch(() => {});
+    } catch {}
   }
 
   return updatedCount;

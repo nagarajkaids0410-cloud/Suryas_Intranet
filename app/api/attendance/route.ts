@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/rbac';
 import { findUserById } from '@/lib/user-database';
-import { getAttendanceForDate, getAttendanceInRange, getAttendanceForUser, recordAttendance } from '@/lib/attendance-db';
-import { addRequestDB, generateRequestIdentifiers } from '@/lib/request-db';
+import { getAttendanceForDate, getAttendanceInRange, getAttendanceForUser, recordAttendance, recordAttendanceAndSync, fetchAttendanceFromSupabase } from '@/lib/attendance-db';
+import { addRequestDB, persistRequestDB, generateRequestIdentifiers } from '@/lib/request-db';
 import { getApprovalChainForUser, isEligibleGuideRole, RequestItem, requiresGuideRole } from '@/lib/request-store';
-import { addNotificationDB } from '@/lib/notification-db';
+import { addNotificationDB, addNotificationAndSyncDB } from '@/lib/notification-db';
 import { addAuditEntry } from '@/lib/audit-log';
 
 const allowedRoles = [
@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
   const auth = requireRole(request, [...allowedRoles]);
   if (auth instanceof NextResponse) return auth;
   try {
+    await fetchAttendanceFromSupabase();
     const { searchParams } = new URL(request.url);
     if (searchParams.get('scope') === 'team') {
       if (
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === 'check-in' || body.action === 'check-out') {
-      const attendance = recordAttendance(user, indiaDate(), body.action);
+      const attendance = await recordAttendanceAndSync(user, indiaDate(), body.action);
       return NextResponse.json({ success: true, attendance });
     }
     if (body.action !== 'submit-report') {
@@ -132,8 +133,8 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
-    addRequestDB(report);
-    addNotificationDB({
+    await persistRequestDB(report);
+    await addNotificationAndSyncDB({
       type: 'request_submitted',
       title: 'Attendance report submitted',
       message: `${user.fullName} submitted an attendance report for ${fromDate} to ${toDate}.`,

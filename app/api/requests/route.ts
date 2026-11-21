@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getApprovalChainForUser, isEligibleGuideRole, RequestItem, RequestTarget, RequestType, requiresGuideRole, UploadedFile } from '@/lib/request-store';
-import { addRequestDB, generateRequestIdentifiers, getRequestsByTargetDB } from '@/lib/request-db';
+import { addRequestDB, generateRequestIdentifiers, getRequestsByTargetDB, fetchRequestsFromSupabase, persistRequestDB } from '@/lib/request-db';
 import { requireRole } from '@/lib/rbac';
 import { findUserById } from '@/lib/user-database';
-import { addNotificationsDB } from '@/lib/notification-db';
+import { addNotificationsDB, addNotificationsAndSyncDB } from '@/lib/notification-db';
 import { withCurrentSubmitterProfiles } from '@/lib/request-profile';
 import { EXTENDED_DOCUMENT_MAX_BYTES, isValidDocumentUpload, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
 
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
   const compact = searchParams.get('compact') === 'true';
   const mineOnly = searchParams.get('mine') === 'true';
   const requestedType = searchParams.get('type');
-  const items = getRequestsByTargetDB('all').filter((item) => {
+  const allRequests = await fetchRequestsFromSupabase();
+  const items = allRequests.filter((item) => {
     if (requestedType && item.type !== requestedType) return false;
     if (mineOnly) return item.createdById === auth.id && item.type !== 'internal-service';
     const chain = item.payload?.approvalChain;
@@ -265,10 +266,10 @@ export async function POST(request: NextRequest) {
       signatureFrom,
     };
 
-    const saved = addRequestDB(newRequest);
+    const saved = await persistRequestDB(newRequest);
     try {
       const firstApprover = normalizedPayload.approvalChain[0];
-      addNotificationsDB([
+      await addNotificationsAndSyncDB([
         {
           type: 'request_submitted',
           title: `Request submitted - ${saved.title}`,

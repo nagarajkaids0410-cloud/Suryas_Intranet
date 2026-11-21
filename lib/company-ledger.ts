@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { addAuditEntry } from './audit-log';
+import { getSupabaseAdmin } from './supabase';
 
 export type LedgerTransactionType = 'credited' | 'debited';
 
@@ -51,7 +52,10 @@ function readLedger(): CompanyLedger {
   }
 }
 
+let cachedLedger: CompanyLedger | undefined;
+
 function writeLedger(ledger: CompanyLedger): void {
+  cachedLedger = ledger;
   try {
     ensureLedgerFile();
     fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
@@ -61,7 +65,25 @@ function writeLedger(ledger: CompanyLedger): void {
 }
 
 export function getCompanyLedger(): CompanyLedger {
-  return readLedger();
+  return cachedLedger || readLedger();
+}
+
+export async function fetchLedgerFromSupabase(): Promise<CompanyLedger> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: summary } = await supabase.from('company_ledger_summary').select('balance').eq('id', 1).maybeSingle();
+    const { data: txns } = await supabase.from('company_ledger_transactions').select('*').order('date', { ascending: false });
+    if (summary !== null || (txns && txns.length > 0)) {
+      cachedLedger = {
+        balance: summary?.balance ? Number(summary.balance) : 0,
+        transactions: (txns || []) as LedgerTransaction[],
+      };
+      return cachedLedger;
+    }
+  } catch (err) {
+    console.warn('[Supabase fetchLedgerFromSupabase error]:', err);
+  }
+  return cachedLedger || readLedger();
 }
 
 export function addLedgerTransaction(input: {
@@ -75,7 +97,7 @@ export function addLedgerTransaction(input: {
   modeOfPayment?: string;
   date?: string;
 }): CompanyLedger {
-  const ledger = readLedger();
+  const ledger = cachedLedger || readLedger();
   const normalizedAmount = Number(input.amount);
   const delta = input.type === 'credited' ? normalizedAmount : -normalizedAmount;
   const nextBalance = Number((ledger.balance + delta).toFixed(2));
@@ -104,6 +126,39 @@ export function addLedgerTransaction(input: {
     addAuditEntry({ action: `financial:${input.type}`, actor: input.amountBy || 'system', details: { amount: input.amount, purpose: input.purpose, modeOfPayment: input.modeOfPayment, balanceAfter: nextBalance } });
   } catch (e) {
     console.error('Audit log failed for ledger transaction', e);
+  }
+
+  // Background sync to Supabase
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('company_ledger_transactions').upsert(transaction)).catch(() => {});
+    Promise.resolve(supabase.from('company_ledger_summary').upsert({ id: 1, balance: nextBalance, updatedAt: new Date().toISOString() })).catch(() => {});
+  } catch {}
+
+  return nextLedger;
+}
+
+export async function addLedgerTransactionAndSync(input: {
+  amount: number;
+  purpose: string;
+  remarks?: string;
+  type: LedgerTransactionType;
+  requestId?: string;
+  requestType?: string;
+  amountBy?: string;
+  modeOfPayment?: string;
+  date?: string;
+}): Promise<CompanyLedger> {
+  const nextLedger = addLedgerTransaction(input);
+  try {
+    const supabase = getSupabaseAdmin();
+    const txn = nextLedger.transactions[0];
+    if (txn) {
+      await supabase.from('company_ledger_transactions').upsert(txn);
+    }
+    await supabase.from('company_ledger_summary').upsert({ id: 1, balance: nextLedger.balance, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn('[Supabase addLedgerTransactionAndSync error]:', err);
   }
   return nextLedger;
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { getSupabaseAdmin } from './supabase';
 
 const DB_FILE = path.join(process.cwd(), '.data', 'tasks.json');
 
@@ -32,16 +33,44 @@ export interface ManagedTask {
   comments: TaskComment[];
 }
 
+let cachedTasks: ManagedTask[] | undefined;
+
 function readDB(): ManagedTask[] {
-  if (!fs.existsSync(DB_FILE)) return [];
-  const tasks: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  if (!Array.isArray(tasks)) throw new Error('Task database has an invalid format');
-  return tasks as ManagedTask[];
+  try {
+    if (!fs.existsSync(DB_FILE)) return cachedTasks || [];
+    const tasks: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (!Array.isArray(tasks)) return cachedTasks || [];
+    cachedTasks = tasks as ManagedTask[];
+    return cachedTasks;
+  } catch {
+    return cachedTasks || [];
+  }
 }
 
 function writeDB(tasks: ManagedTask[]) {
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  fs.writeFileSync(DB_FILE, JSON.stringify(tasks, null, 2));
+  cachedTasks = tasks;
+  try {
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+    fs.writeFileSync(DB_FILE, JSON.stringify(tasks, null, 2));
+  } catch {}
+}
+
+export async function fetchTasksFromSupabase(): Promise<ManagedTask[]> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .order('createdAt', { ascending: false });
+
+    if (!error && data) {
+      cachedTasks = data as ManagedTask[];
+      return cachedTasks;
+    }
+  } catch (err) {
+    console.warn('[Supabase fetchTasks error]:', err);
+  }
+  return cachedTasks || readDB();
 }
 
 export function getTasks(): ManagedTask[] {
@@ -62,6 +91,13 @@ export function createTasks(inputs: NewTask[]): ManagedTask[] {
   }));
   tasks.unshift(...created);
   writeDB(tasks);
+
+  // Sync to Supabase
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('tasks').upsert(created)).catch(() => {});
+  } catch {}
+
   return created;
 }
 
@@ -118,6 +154,13 @@ export function syncProjectTeamTasks(
   const remaining = tasks.filter((task) => task.sourceProjectId !== projectId);
   remaining.unshift(...projectTasks);
   writeDB(remaining);
+
+  // Sync to Supabase
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('tasks').upsert(projectTasks)).catch(() => {});
+  } catch {}
+
   return projectTasks;
 }
 
@@ -128,5 +171,36 @@ export function updateTask(id: string, update: (task: ManagedTask) => void): Man
   update(task);
   task.updatedAt = new Date().toISOString();
   writeDB(tasks);
+
+  // Sync to Supabase
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('tasks').update(task).eq('id', id)).catch(() => {});
+  } catch {}
+
+  return task;
+}
+
+export async function createTasksAndSync(inputs: NewTask[]): Promise<ManagedTask[]> {
+  const created = createTasks(inputs);
+  try {
+    const supabase = getSupabaseAdmin();
+    await supabase.from('tasks').upsert(created);
+  } catch (err) {
+    console.warn('[Supabase createTasksAndSync error]:', err);
+  }
+  return created;
+}
+
+export async function updateTaskAndSync(id: string, update: (task: ManagedTask) => void): Promise<ManagedTask | undefined> {
+  const task = updateTask(id, update);
+  if (task) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from('tasks').upsert(task);
+    } catch (err) {
+      console.warn('[Supabase updateTaskAndSync error]:', err);
+    }
+  }
   return task;
 }

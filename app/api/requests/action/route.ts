@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRequestByIdDB, updateRequestStatusDB } from '@/lib/request-db';
-import { addLedgerTransaction } from '@/lib/company-ledger';
+import { getRequestByIdDB, updateRequestStatusDB, updateRequestStatusAndSyncDB } from '@/lib/request-db';
+import { addLedgerTransaction, addLedgerTransactionAndSync } from '@/lib/company-ledger';
 import { requireRole } from '@/lib/rbac';
-import { addNotificationDB, addNotificationsDB } from '@/lib/notification-db';
+import { addNotificationDB, addNotificationsDB, addNotificationsAndSyncDB, addNotificationAndSyncDB } from '@/lib/notification-db';
 import { isValidDocumentUpload, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
 import { getAllUsers } from '@/lib/user-database';
 import { addAuditEntry } from '@/lib/audit-log';
@@ -51,7 +51,15 @@ export async function POST(request: NextRequest) {
     ]);
     if (caller instanceof NextResponse) return caller;
 
-    const current = getRequestByIdDB(requestId);
+    let current = getRequestByIdDB(requestId);
+    if (!current) {
+      try {
+        const { getSupabaseAdmin } = require('@/lib/supabase');
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
+        if (data) current = data;
+      } catch {}
+    }
     if (!current) {
       return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     }
@@ -199,7 +207,7 @@ export async function POST(request: NextRequest) {
           if (idx + 1 < chain.length) {
             const nextApprover = chain[idx + 1];
             const comments = Array.isArray(currentPayload.comments) ? currentPayload.comments : [];
-            const updated = updateRequestStatusDB(requestId, 'forwarded', {
+            const updated = await updateRequestStatusAndSyncDB(requestId, 'forwarded', {
               payload: {
                 ...currentPayload,
                 currentApproverIndex: idx + 1,
@@ -233,7 +241,7 @@ export async function POST(request: NextRequest) {
                   read: false,
                 });
               }
-              addNotificationsDB(notifications);
+              await addNotificationsAndSyncDB(notifications);
             } catch (error) {
               console.error('Failed to add request-forwarding notifications', error);
             }
@@ -277,7 +285,7 @@ export async function POST(request: NextRequest) {
             ? { assignedHeadId: currentPayload.requestedRecipientId }
             : {}),
         };
-        const finalUpdated = updateRequestStatusDB(requestId, 'approved', {
+        const finalUpdated = await updateRequestStatusAndSyncDB(requestId, 'approved', {
           payload: finalPayload,
           ...(action === 'issue' ? {
             officialDocument: {
@@ -299,7 +307,7 @@ export async function POST(request: NextRequest) {
           const applicant = getAllUsers().find((user) => user.id === current.createdById);
           if (applicant) {
             try {
-              addNotificationDB({
+              await addNotificationAndSyncDB({
                 type: 'request_approved',
                 title: `Request approved - ${current.title}`,
                 message: `Your request ${current.title} received final approval.`,
@@ -315,7 +323,7 @@ export async function POST(request: NextRequest) {
             const recipient = findUserById(currentPayload.requestedRecipientId);
             if (recipient) {
               try {
-                addNotificationDB({
+                await addNotificationAndSyncDB({
                   type: 'internal-service-request',
                   title: 'Approved internal request assigned to you',
                   message: `${current.createdBy} has an approved internal request assigned to you.`,
@@ -358,7 +366,7 @@ export async function POST(request: NextRequest) {
           const amountBy = current.createdBy;
           const modeOfPayment = current.payload?.modeOfPayment || '';
 
-          addLedgerTransaction({
+          await addLedgerTransactionAndSync({
             amount,
             purpose,
             remarks,
@@ -370,7 +378,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const updated = updateRequestStatusDB(requestId, 'approved');
+        const updated = await updateRequestStatusAndSyncDB(requestId, 'approved');
         return NextResponse.json({ success: true, request: omitFileContents(updated) });
       }
       // For non-TA/proposal approvals, perform a forward flow — only admin can forward requests to founder
@@ -379,7 +387,7 @@ export async function POST(request: NextRequest) {
 
       const forwardedTo = current.signatureFrom === 'Hareesh' || isIntern(current.createdByDesignation) ? 'Hareesh' : 'Founder';
       const target = forwardedTo === 'Founder' ? 'founder' : 'admin';
-      const updated = updateRequestStatusDB(requestId, 'forwarded', { target, forwardedTo, signatureStatus: 'pending' });
+      const updated = await updateRequestStatusAndSyncDB(requestId, 'forwarded', { target, forwardedTo, signatureStatus: 'pending' });
       return NextResponse.json({ success: true, request: omitFileContents(updated), forwardedTo });
     }
 
@@ -389,7 +397,7 @@ export async function POST(request: NextRequest) {
       // append comment to payload.comments
       const existingComments = (current.payload && (current.payload as any).comments) || [];
       const nextComments = [{ by: actingUsername, comment, decision: 'reject', stageIndex, at: new Date().toISOString() }, ...existingComments];
-      const updated = updateRequestStatusDB(requestId, 'rejected', { payload: { ...(current.payload || {}), comments: nextComments } });
+      const updated = await updateRequestStatusAndSyncDB(requestId, 'rejected', { payload: { ...(current.payload || {}), comments: nextComments } });
 
       try {
         addAuditEntry({ action: 'request:reject', actor: actingUsername, actorId: caller.id, details: { requestId, remarks: comment } });
@@ -400,7 +408,7 @@ export async function POST(request: NextRequest) {
         const applicant = getAllUsers().find((user) => user.id === current.createdById);
         if (applicant) {
           try {
-            addNotificationDB({
+            await addNotificationAndSyncDB({
               type: 'request_rejected',
               title: `Request rejected - ${current.title}`,
               message: `Your request ${current.title} was rejected by ${actingUsername}. Remarks: ${comment}`,

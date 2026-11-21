@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/rbac';
-import { addCircularDB, getCircularsDB, updateCircularDB } from '@/lib/circular-db';
+import { addCircularDB, addCircularAndSyncDB, getCircularsDB, fetchCircularsFromSupabase, updateCircularDB } from '@/lib/circular-db';
 
 export interface Circular {
   id: string;
@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
   ]);
   if (auth instanceof NextResponse) return auth;
   try {
-    return NextResponse.json({ success: true, circulars: getCircularsDB() });
+    const circulars = await fetchCircularsFromSupabase();
+    return NextResponse.json({ success: true, circulars });
   } catch (error) {
     console.error('Error loading circulars:', error);
     return NextResponse.json({ error: 'Unable to load circulars' }, { status: 500 });
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       meta,
     };
 
-    addCircularDB(circular);
+    await addCircularAndSyncDB(circular);
     return NextResponse.json({ success: true, circular });
   } catch (error) {
     console.error('Error creating circular:', error);
