@@ -159,7 +159,7 @@ export function addUser(user: StoredUser): StoredUser {
   // Sync to Supabase in background
   try {
     const supabase = getSupabaseAdmin();
-    supabase.from('users').upsert(user).then(() => {}).catch(() => {});
+    Promise.resolve(supabase.from('users').upsert(user)).catch(() => {});
   } catch {}
 
   return user;
@@ -205,7 +205,7 @@ export function approveUser(
     // Sync to Supabase in background
     try {
       const supabase = getSupabaseAdmin();
-      supabase.from('users').update(users[index]).eq('id', userId).then(() => {}).catch(() => {});
+      Promise.resolve(supabase.from('users').update(users[index]).eq('id', userId)).catch(() => {});
     } catch {}
 
     return users[index];
@@ -220,7 +220,7 @@ export function denyUser(userId: string): boolean {
   // Sync to Supabase in background
   try {
     const supabase = getSupabaseAdmin();
-    supabase.from('users').delete().eq('id', userId).then(() => {}).catch(() => {});
+    Promise.resolve(supabase.from('users').delete().eq('id', userId)).catch(() => {});
   } catch {}
 
   return users.length !== initial;
@@ -234,7 +234,7 @@ export function updateUser(username: string, updates: Partial<StoredUser>): Stor
     // Sync to Supabase in background
     try {
       const supabase = getSupabaseAdmin();
-      supabase.from('users').update(updates).eq('username', username).then(() => {}).catch(() => {});
+      Promise.resolve(supabase.from('users').update(updates).eq('username', username)).catch(() => {});
     } catch {}
 
     return users[index];
@@ -250,7 +250,7 @@ export function updateUserById(userId: string, updates: Partial<StoredUser>): St
     // Sync to Supabase in background
     try {
       const supabase = getSupabaseAdmin();
-      supabase.from('users').update(updates).eq('id', userId).then(() => {}).catch(() => {});
+      Promise.resolve(supabase.from('users').update(updates).eq('id', userId)).catch(() => {});
     } catch {}
 
     return users[index];

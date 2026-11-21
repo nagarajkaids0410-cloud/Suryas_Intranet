@@ -55,7 +55,7 @@ export function saveUsersToDB(users: StoredUser[]) {
   writeDB(users);
   try {
     const supabase = getSupabaseAdmin();
-    supabase.from('users').upsert(users).then(() => {}).catch(() => {});
+    Promise.resolve(supabase.from('users').upsert(users)).catch(() => {});
   } catch {}
 }
 
@@ -73,7 +73,7 @@ export function updateUserInDB(id: string, updates: Partial<StoredUser>) {
 
   try {
     const supabase = getSupabaseAdmin();
-    supabase.from('users').update(updates).eq('id', id).then(() => {}).catch(() => {});
+    Promise.resolve(supabase.from('users').update(updates).eq('id', id)).catch(() => {});
   } catch {}
 
   return index !== -1 ? users[index] : undefined;
@@ -89,7 +89,7 @@ export function updateUserByUsernameInDB(username: string, updates: Partial<Stor
 
   try {
     const supabase = getSupabaseAdmin();
-    supabase.from('users').update(updates).eq('username', username).then(() => {}).catch(() => {});
+    Promise.resolve(supabase.from('users').update(updates).eq('username', username)).catch(() => {});
   } catch {}
 
   return index !== -1 ? users[index] : undefined;
