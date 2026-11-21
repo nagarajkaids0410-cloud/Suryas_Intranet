@@ -4,7 +4,7 @@ import json
 import glob
 import re
 import psycopg2
-from psycopg2.extras import execute_values, Json
+from psycopg2.extras import execute_values, Json 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, ".data")
@@ -352,6 +352,15 @@ def migrate_notifications(conn):
         execute_values(cur, query, records)
     print(f"[+] Successfully migrated {len(notifs)} notifications!")
 
+def clean_audit_details(d):
+    if isinstance(d, dict):
+        return {k: clean_audit_details(v) for k, v in d.items()}
+    elif isinstance(d, list):
+        return [clean_audit_details(item) for item in d]
+    elif isinstance(d, str) and len(d) > 500:
+        return d[:100] + "... [trimmed]"
+    return d
+
 def migrate_audit_logs(conn):
     path = os.path.join(DATA_DIR, "audit-log.json")
     if not os.path.exists(path):
@@ -369,12 +378,13 @@ def migrate_audit_logs(conn):
         batch = logs[i:i + batch_size]
         records = []
         for l in batch:
+            cleaned = clean_audit_details(l.get("details", {}))
             records.append((
                 l.get("id"),
                 l.get("action"),
                 l.get("actor"),
                 l.get("actorId"),
-                Json(l.get("details", {})),
+                Json(cleaned),
                 l.get("timestamp")
             ))
         with conn.cursor() as cur:
@@ -434,7 +444,10 @@ def main():
         migrate_circulars(conn)
         migrate_ledger(conn)
         migrate_notifications(conn)
-        migrate_audit_logs(conn)
+        try:
+            migrate_audit_logs(conn)
+        except Exception as e:
+            print(f"[-] Audit logs warning: {e} (continuing to verification)")
         migrate_retention(conn)
         verify_migration(conn)
     finally:

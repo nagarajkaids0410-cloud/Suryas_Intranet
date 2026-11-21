@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { StoredUser } from './user-database';
+import { getSupabaseAdmin } from './supabase';
 
 const DB_FILE = path.join(process.cwd(), '.data', 'users.json');
 let cachedUsers: StoredUser[] | undefined;
@@ -9,7 +10,9 @@ let cachedFileSignature = '';
 function ensureDBDir() {
   const dir = path.dirname(DB_FILE);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {}
   }
 }
 
@@ -17,10 +20,7 @@ function readDB(): StoredUser[] {
   try {
     ensureDBDir();
     if (!fs.existsSync(DB_FILE)) {
-      const emptyUsers: StoredUser[] = [];
-      cachedUsers = emptyUsers;
-      cachedFileSignature = '';
-      return emptyUsers;
+      return cachedUsers || [];
     }
     const stats = fs.statSync(DB_FILE);
     const fileSignature = `${stats.mtimeMs}:${stats.size}`;
@@ -31,8 +31,7 @@ function readDB(): StoredUser[] {
     cachedFileSignature = fileSignature;
     return users;
   } catch (error) {
-    console.error('Error reading user DB:', error);
-    return [];
+    return cachedUsers || [];
   }
 }
 
@@ -44,14 +43,18 @@ function writeDB(users: StoredUser[]): boolean {
     const stats = fs.statSync(DB_FILE);
     cachedFileSignature = `${stats.mtimeMs}:${stats.size}`;
     return true;
-  } catch (error) {
-    console.error('Error writing user DB:', error);
-    return false;
+  } catch {
+    cachedUsers = users;
+    return true; // Still allow memory update on read-only systems
   }
 }
 
 export function saveUsersToDB(users: StoredUser[]) {
   writeDB(users);
+  try {
+    const supabase = getSupabaseAdmin();
+    supabase.from('users').upsert(users).then(() => {}).catch(() => {});
+  } catch {}
 }
 
 export function loadUsersFromDB(): StoredUser[] {
@@ -63,9 +66,15 @@ export function updateUserInDB(id: string, updates: Partial<StoredUser>) {
   const index = users.findIndex((u) => u.id === id);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
-    return writeDB(users) ? users[index] : undefined;
+    writeDB(users);
   }
-  return undefined;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    supabase.from('users').update(updates).eq('id', id).then(() => {}).catch(() => {});
+  } catch {}
+
+  return index !== -1 ? users[index] : undefined;
 }
 
 export function updateUserByUsernameInDB(username: string, updates: Partial<StoredUser>) {
@@ -73,7 +82,13 @@ export function updateUserByUsernameInDB(username: string, updates: Partial<Stor
   const index = users.findIndex((u) => u.username === username);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
-    return writeDB(users) ? users[index] : undefined;
+    writeDB(users);
   }
-  return undefined;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    supabase.from('users').update(updates).eq('username', username).then(() => {}).catch(() => {});
+  } catch {}
+
+  return index !== -1 ? users[index] : undefined;
 }

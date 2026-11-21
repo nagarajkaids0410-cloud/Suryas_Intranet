@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
-    const user = findUserByUsername(normalizedUsername);
+    const user = await findUserByUsername(normalizedUsername);
 
     if (!user) {
       return NextResponse.json(

@@ -36,9 +36,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Registration for the requested role is not allowed' }, { status: 403 });
     }
 
+    const existingByUsername = await findUserByUsername(username);
+    const allUsers = await getAllUsers();
     if (
-      findUserByUsername(username) ||
-      getAllUsers().some((existingUser) => existingUser.email.toLowerCase() === email)
+      existingByUsername ||
+      allUsers.some((existingUser) => existingUser.email.toLowerCase() === email)
     ) {
       return NextResponse.json(
         { error: 'Username or email is already registered' },
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
     };
 
     saveUsersToDB([...existingUsers, newUser]);
-    const savedUser = addUser(newUser);
+    const savedUser = await addUser(newUser);
 
     addNotificationDB({
       type: 'user_access_request',
