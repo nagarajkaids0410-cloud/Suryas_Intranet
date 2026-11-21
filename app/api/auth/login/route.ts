@@ -16,7 +16,21 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
-    const user = await findUserByUsername(normalizedUsername);
+    let user = findUserByUsername(normalizedUsername);
+
+    if (!user) {
+      try {
+        const { getSupabaseAdmin } = require('@/lib/supabase');
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase
+          .from('users')
+          .select('*')
+          .or(`username.ilike.${normalizedUsername},email.ilike.${normalizedUsername},employeeId.ilike.${normalizedUsername}`)
+          .limit(1)
+          .maybeSingle();
+        if (data) user = data;
+      } catch {}
+    }
 
     if (!user) {
       return NextResponse.json(

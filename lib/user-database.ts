@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { getSupabaseAdmin } from './supabase';
 
 export interface StoredUser {
@@ -54,158 +56,123 @@ export interface StoredUser {
   selectedRole?: string;
 }
 
-const defaultUsers: StoredUser[] = [];
-
-// Initialize from file DB if available (for local offline fallback)
+// Load default seed users
 function initializeUsers(): StoredUser[] {
+  // 1. Try loading from file DB (.data/users.json)
   try {
     const { loadUsersFromDB } = require('./user-db');
     const loaded = loadUsersFromDB();
     if (loaded && loaded.length > 0) {
       return loaded;
     }
-  } catch {
-    // Fallback to empty defaults
-  }
-  return defaultUsers;
+  } catch {}
+
+  // 2. Try loading from bundled seed (lib/users-seed.json)
+  try {
+    const seedPath = path.join(process.cwd(), 'lib', 'users-seed.json');
+    if (fs.existsSync(seedPath)) {
+      const data = fs.readFileSync(seedPath, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as StoredUser[];
+      }
+    }
+  } catch {}
+
+  return [];
 }
 
 let users: StoredUser[] = initializeUsers();
 
-export async function findUserByUsername(username: string): Promise<StoredUser | undefined> {
+export function findUserByUsername(username: string): StoredUser | undefined {
   const normalizedUsername = (username || '').trim().toLowerCase();
   if (!normalizedUsername) return undefined;
 
-  // 1. Query Supabase
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .or(`username.ilike.${normalizedUsername},email.ilike.${normalizedUsername},employeeId.ilike.${normalizedUsername}`)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      const foundUser = data as StoredUser;
-      const index = users.findIndex((u) => u.id === foundUser.id);
-      if (index !== -1) users[index] = foundUser;
-      else users.push(foundUser);
-      return foundUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase findUserByUsername error]:', err);
-  }
-
-  // 2. Fallback to in-memory / local cache
-  return users.find((u) =>
-    u.username.toLowerCase() === normalizedUsername ||
-    u.email.toLowerCase() === normalizedUsername ||
-    u.employeeId?.toLowerCase() === normalizedUsername
+  let user = users.find(
+    (u) =>
+      u.username.toLowerCase() === normalizedUsername ||
+      u.email.toLowerCase() === normalizedUsername ||
+      u.employeeId?.toLowerCase() === normalizedUsername
   );
-}
 
-export async function findUserById(id: string): Promise<StoredUser | undefined> {
-  if (!id) return undefined;
-
-  // 1. Query Supabase
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', id)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      const foundUser = data as StoredUser;
-      const index = users.findIndex((u) => u.id === foundUser.id);
-      if (index !== -1) users[index] = foundUser;
-      else users.push(foundUser);
-      return foundUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase findUserById error]:', err);
+  if (!user) {
+    try {
+      const { loadUsersFromDB } = require('./user-db');
+      const fileUsers = loadUsersFromDB();
+      if (fileUsers && fileUsers.length > 0) {
+        user = fileUsers.find(
+          (u: StoredUser) =>
+            u.username.toLowerCase() === normalizedUsername ||
+            u.email.toLowerCase() === normalizedUsername ||
+            u.employeeId?.toLowerCase() === normalizedUsername
+        );
+        if (user) {
+          const idx = users.findIndex((u) => u.id === user!.id);
+          if (idx !== -1) users[idx] = user;
+          else users.push(user);
+        }
+      }
+    } catch {}
   }
 
-  // 2. Fallback to in-memory
-  return users.find((u) => u.id === id);
-}
-
-export async function findUserByVerificationToken(token: string): Promise<StoredUser | undefined> {
-  if (!token) return undefined;
-
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('verificationToken', token)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      return data as StoredUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase findUserByVerificationToken error]:', err);
-  }
-
-  return users.find((u) => u.verificationToken === token);
-}
-
-export async function findUserByResetToken(token: string): Promise<StoredUser | undefined> {
-  if (!token) return undefined;
-
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('resetToken', token)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data && data.resetTokenExpiresAt) {
-      return data as StoredUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase findUserByResetToken error]:', err);
-  }
-
-  return users.find((u) => u.resetToken === token && !!u.resetTokenExpiresAt);
-}
-
-export async function addUser(user: StoredUser): Promise<StoredUser> {
-  try {
-    const supabase = getSupabaseAdmin();
-    await supabase.from('users').upsert(user);
-  } catch (err) {
-    console.warn('[Supabase addUser error]:', err);
-  }
-
-  const idx = users.findIndex((u) => u.id === user.id);
-  if (idx !== -1) users[idx] = user;
-  else users.push(user);
   return user;
 }
 
-export async function getAllUsers(): Promise<StoredUser[]> {
+export function findUserById(id: string): StoredUser | undefined {
+  if (!id) return undefined;
+
+  let user = users.find((u) => u.id === id);
+
+  if (!user) {
+    try {
+      const { loadUsersFromDB } = require('./user-db');
+      const fileUsers = loadUsersFromDB();
+      if (fileUsers && fileUsers.length > 0) {
+        user = fileUsers.find((u: StoredUser) => u.id === id);
+        if (user) {
+          const idx = users.findIndex((u) => u.id === user!.id);
+          if (idx !== -1) users[idx] = user;
+          else users.push(user);
+        }
+      }
+    } catch {}
+  }
+
+  return user;
+}
+
+export function findUserByVerificationToken(token: string): StoredUser | undefined {
+  if (!token) return undefined;
+  return users.find((u) => u.verificationToken === token);
+}
+
+export function findUserByResetToken(token: string): StoredUser | undefined {
+  if (!token) return undefined;
+  return users.find((u) => u.resetToken === token && !!u.resetTokenExpiresAt);
+}
+
+export function addUser(user: StoredUser): StoredUser {
+  const idx = users.findIndex((u) => u.id === user.id);
+  if (idx !== -1) users[idx] = user;
+  else users.push(user);
+
+  // Sync to Supabase in background
   try {
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('createdAt', { ascending: false });
+    supabase.from('users').upsert(user).then(() => {}).catch(() => {});
+  } catch {}
 
-    if (!error && data && data.length > 0) {
-      users = data as StoredUser[];
-      return users;
+  return user;
+}
+
+export function getAllUsers(): StoredUser[] {
+  try {
+    const { loadUsersFromDB } = require('./user-db');
+    const persistedUsers = loadUsersFromDB();
+    if (persistedUsers && persistedUsers.length > 0) {
+      users = persistedUsers;
     }
-  } catch (err) {
-    console.warn('[Supabase getAllUsers error]:', err);
-  }
+  } catch {}
 
   return users;
 }
@@ -214,90 +181,78 @@ export function getPendingUsers(): StoredUser[] {
   return users.filter((u) => u.status === 'pending_approval');
 }
 
-export async function isUsernameTaken(username: string): Promise<boolean> {
-  const user = await findUserByUsername(username);
-  return !!user;
+export function isUsernameTaken(username: string): boolean {
+  return !!findUserByUsername(username);
 }
 
-export async function approveUser(
+export function approveUser(
   userId: string,
   username?: string,
   passwordHash?: string,
   updates?: Partial<StoredUser>
-): Promise<StoredUser | undefined> {
-  const updatePayload: Partial<StoredUser> = {
-    ...(username ? { username } : {}),
-    ...(passwordHash ? { passwordHash } : {}),
-    status: 'active',
-    approvedAt: new Date().toISOString(),
-    ...updates,
-  };
-
-  return updateUserById(userId, updatePayload);
-}
-
-export async function denyUser(userId: string): Promise<boolean> {
-  try {
-    const supabase = getSupabaseAdmin();
-    await supabase.from('users').delete().eq('id', userId);
-  } catch (err) {
-    console.warn('[Supabase denyUser error]:', err);
-  }
-
-  const initial = users.length;
-  users = users.filter((u) => u.id !== userId);
-  return users.length !== initial;
-}
-
-export async function updateUser(username: string, updates: Partial<StoredUser>): Promise<StoredUser | undefined> {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('username', username)
-      .select()
-      .maybeSingle();
-
-    if (data) {
-      const idx = users.findIndex((u) => u.username === username);
-      if (idx !== -1) users[idx] = data as StoredUser;
-      return data as StoredUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase updateUser error]:', err);
-  }
-
-  const index = users.findIndex((u) => u.username === username);
+): StoredUser | undefined {
+  const index = users.findIndex((u) => u.id === userId);
   if (index !== -1) {
-    users[index] = { ...users[index], ...updates };
+    users[index] = {
+      ...users[index],
+      username: username || users[index].username,
+      passwordHash: passwordHash || users[index].passwordHash,
+      status: 'active',
+      approvedAt: new Date().toISOString(),
+      ...updates,
+    };
+
+    // Sync to Supabase in background
+    try {
+      const supabase = getSupabaseAdmin();
+      supabase.from('users').update(users[index]).eq('id', userId).then(() => {}).catch(() => {});
+    } catch {}
+
     return users[index];
   }
   return undefined;
 }
 
-export async function updateUserById(userId: string, updates: Partial<StoredUser>): Promise<StoredUser | undefined> {
+export function denyUser(userId: string): boolean {
+  const initial = users.length;
+  users = users.filter((u) => u.id !== userId);
+
+  // Sync to Supabase in background
   try {
     const supabase = getSupabaseAdmin();
-    const { data } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', userId)
-      .select()
-      .maybeSingle();
+    supabase.from('users').delete().eq('id', userId).then(() => {}).catch(() => {});
+  } catch {}
 
-    if (data) {
-      const idx = users.findIndex((u) => u.id === userId);
-      if (idx !== -1) users[idx] = data as StoredUser;
-      return data as StoredUser;
-    }
-  } catch (err) {
-    console.warn('[Supabase updateUserById error]:', err);
+  return users.length !== initial;
+}
+
+export function updateUser(username: string, updates: Partial<StoredUser>): StoredUser | undefined {
+  const index = users.findIndex((u) => u.username === username);
+  if (index !== -1) {
+    users[index] = { ...users[index], ...updates };
+
+    // Sync to Supabase in background
+    try {
+      const supabase = getSupabaseAdmin();
+      supabase.from('users').update(updates).eq('username', username).then(() => {}).catch(() => {});
+    } catch {}
+
+    return users[index];
   }
+  return undefined;
+}
 
+export function updateUserById(userId: string, updates: Partial<StoredUser>): StoredUser | undefined {
   const index = users.findIndex((u) => u.id === userId);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
+
+    // Sync to Supabase in background
+    try {
+      const supabase = getSupabaseAdmin();
+      supabase.from('users').update(updates).eq('id', userId).then(() => {}).catch(() => {});
+    } catch {}
+
     return users[index];
   }
   return undefined;

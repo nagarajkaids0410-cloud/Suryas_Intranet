@@ -4,49 +4,51 @@ import { StoredUser } from './user-database';
 import { getSupabaseAdmin } from './supabase';
 
 const DB_FILE = path.join(process.cwd(), '.data', 'users.json');
+const SEED_FILE = path.join(process.cwd(), 'lib', 'users-seed.json');
+
 let cachedUsers: StoredUser[] | undefined;
 let cachedFileSignature = '';
 
-function ensureDBDir() {
-  const dir = path.dirname(DB_FILE);
-  if (!fs.existsSync(dir)) {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-    } catch {}
-  }
-}
-
 function readDB(): StoredUser[] {
   try {
-    ensureDBDir();
-    if (!fs.existsSync(DB_FILE)) {
-      return cachedUsers || [];
+    // 1. Try .data/users.json if it exists
+    if (fs.existsSync(DB_FILE)) {
+      const stats = fs.statSync(DB_FILE);
+      const fileSignature = `${stats.mtimeMs}:${stats.size}`;
+      if (cachedUsers && cachedFileSignature === fileSignature) return cachedUsers;
+      const data = fs.readFileSync(DB_FILE, 'utf-8');
+      const users: StoredUser[] = JSON.parse(data) || [];
+      cachedUsers = users;
+      cachedFileSignature = fileSignature;
+      return users;
     }
-    const stats = fs.statSync(DB_FILE);
-    const fileSignature = `${stats.mtimeMs}:${stats.size}`;
-    if (cachedUsers && cachedFileSignature === fileSignature) return cachedUsers;
-    const data = fs.readFileSync(DB_FILE, 'utf-8');
-    const users: StoredUser[] = JSON.parse(data) || [];
-    cachedUsers = users;
-    cachedFileSignature = fileSignature;
-    return users;
+
+    // 2. Fallback to bundled seed file (works on Netlify)
+    if (fs.existsSync(SEED_FILE)) {
+      const data = fs.readFileSync(SEED_FILE, 'utf-8');
+      const users: StoredUser[] = JSON.parse(data) || [];
+      cachedUsers = users;
+      return users;
+    }
+
+    return cachedUsers || [];
   } catch (error) {
     return cachedUsers || [];
   }
 }
 
 function writeDB(users: StoredUser[]): boolean {
+  cachedUsers = users;
   try {
-    ensureDBDir();
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
-    cachedUsers = users;
     const stats = fs.statSync(DB_FILE);
     cachedFileSignature = `${stats.mtimeMs}:${stats.size}`;
-    return true;
   } catch {
-    cachedUsers = users;
-    return true; // Still allow memory update on read-only systems
+    // Read-only filesystem on Netlify is expected
   }
+  return true;
 }
 
 export function saveUsersToDB(users: StoredUser[]) {
