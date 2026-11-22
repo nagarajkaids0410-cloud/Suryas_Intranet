@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/rbac';
-import { getAllUsers } from '@/lib/user-database';
+import { getAllUsers, StoredUser } from '@/lib/user-database';
+import { getSupabaseAdmin } from '@/lib/supabase';
+
+async function fetchUsersFromSupabase(): Promise<StoredUser[] | null> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.from('users').select('*');
+    if (!error && data && data.length > 0) {
+      return data as StoredUser[];
+    }
+  } catch {}
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   const scope = new URL(request.url).searchParams.get('scope');
@@ -9,7 +21,10 @@ export async function GET(request: NextRequest) {
   ], { allowPasswordChange: scope === 'me' });
   if (auth instanceof NextResponse) return auth;
 
-  const allUsers = getAllUsers();
+  // Try Supabase first (has profile photos), fall back to local seed
+  const supabaseUsers = await fetchUsersFromSupabase();
+  const allUsers: StoredUser[] = supabaseUsers && supabaseUsers.length > 0 ? supabaseUsers : getAllUsers();
+
   if (scope === 'me') {
     const user = allUsers.find((candidate) => candidate.id === auth.id && candidate.status === 'active');
     if (!user) return NextResponse.json({ error: 'Active account required' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
@@ -27,6 +42,7 @@ export async function GET(request: NextRequest) {
         phone: user.phone,
         guideId: user.guideId,
         guideName: user.guideName,
+        profilePhoto: user.profilePhoto,
         profilePictureUploaded: user.profilePictureUploaded,
         isProfileCompleted: user.isProfileCompleted,
       },
