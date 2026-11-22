@@ -2,16 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import { StoredUser } from './user-database';
 import { getSupabaseAdmin } from './supabase';
+import usersSeed from './users-seed.json';
 
 const DB_FILE = path.join(process.cwd(), '.data', 'users.json');
-const SEED_FILE = path.join(process.cwd(), 'lib', 'users-seed.json');
 
 let cachedUsers: StoredUser[] | undefined;
 let cachedFileSignature = '';
 
 function readDB(): StoredUser[] {
   try {
-    // 1. Try .data/users.json if it exists
+    // 1. Try .data/users.json if it exists (local dev)
     if (fs.existsSync(DB_FILE)) {
       const stats = fs.statSync(DB_FILE);
       const fileSignature = `${stats.mtimeMs}:${stats.size}`;
@@ -23,17 +23,15 @@ function readDB(): StoredUser[] {
       return users;
     }
 
-    // 2. Fallback to bundled seed file (works on Netlify)
-    if (fs.existsSync(SEED_FILE)) {
-      const data = fs.readFileSync(SEED_FILE, 'utf-8');
-      const users: StoredUser[] = JSON.parse(data) || [];
-      cachedUsers = users;
-      return users;
+    // 2. Fallback to bundled seed (works in Netlify serverless)
+    if (Array.isArray(usersSeed) && usersSeed.length > 0) {
+      cachedUsers = usersSeed as StoredUser[];
+      return cachedUsers;
     }
 
     return cachedUsers || [];
   } catch (error) {
-    return cachedUsers || [];
+    return cachedUsers || (usersSeed as StoredUser[]) || [];
   }
 }
 

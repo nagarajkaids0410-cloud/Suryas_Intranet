@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getSupabaseAdmin } from './supabase';
+import usersSeed from './users-seed.json';
 
 export interface StoredUser {
   id: string;
@@ -58,7 +59,7 @@ export interface StoredUser {
 
 // Load default seed users
 function initializeUsers(): StoredUser[] {
-  // 1. Try loading from file DB (.data/users.json)
+  // 1. Try loading from file DB (.data/users.json) if available locally
   try {
     const { loadUsersFromDB } = require('./user-db');
     const loaded = loadUsersFromDB();
@@ -67,17 +68,10 @@ function initializeUsers(): StoredUser[] {
     }
   } catch {}
 
-  // 2. Try loading from bundled seed (lib/users-seed.json)
-  try {
-    const seedPath = path.join(process.cwd(), 'lib', 'users-seed.json');
-    if (fs.existsSync(seedPath)) {
-      const data = fs.readFileSync(seedPath, 'utf-8');
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as StoredUser[];
-      }
-    }
-  } catch {}
+  // 2. Bundled seed imported statically (guaranteed in serverless / Netlify)
+  if (Array.isArray(usersSeed) && usersSeed.length > 0) {
+    return usersSeed as StoredUser[];
+  }
 
   return [];
 }

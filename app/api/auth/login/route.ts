@@ -1,7 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import { findUserByUsername } from '@/lib/user-database';
+import bcrypt, { compare as bcryptCompare, compareSync as bcryptCompareSync } from 'bcryptjs';
+import { findUserByUsername, StoredUser } from '@/lib/user-database';
 import { createSessionToken, setSessionCookie } from '@/lib/session';
+import { getSupabaseAdmin } from '@/lib/supabase';
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  if (!password || !hash) return false;
+
+  // 1. Try named export async compare
+  try {
+    if (typeof bcryptCompare === 'function') {
+      const match = await bcryptCompare(password, hash);
+      if (match) return true;
+    }
+  } catch {}
+
+  // 2. Try default export async compare
+  try {
+    if (typeof bcrypt?.compare === 'function') {
+      const match = await bcrypt.compare(password, hash);
+      if (match) return true;
+    }
+  } catch {}
+
+  // 3. Try nested default compare
+  try {
+    if (typeof (bcrypt as any)?.default?.compare === 'function') {
+      const match = await (bcrypt as any).default.compare(password, hash);
+      if (match) return true;
+    }
+  } catch {}
+
+  // 4. Try named export sync compare
+  try {
+    if (typeof bcryptCompareSync === 'function') {
+      const match = bcryptCompareSync(password, hash);
+      if (match) return true;
+    }
+  } catch {}
+
+  // 5. Try default export sync compare
+  try {
+    if (typeof bcrypt?.compareSync === 'function') {
+      const match = bcrypt.compareSync(password, hash);
+      if (match) return true;
+    }
+  } catch {}
+
+  return false;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,23 +63,32 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
-    let user = findUserByUsername(normalizedUsername);
+    let user: StoredUser | undefined;
 
+    // 1. Query Supabase for the live account
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`username.ilike.${normalizedUsername},email.ilike.${normalizedUsername},employeeId.ilike.${normalizedUsername}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        user = data as StoredUser;
+      }
+    } catch (err) {
+      console.warn('[Login] Supabase lookup error:', err);
+    }
+
+    // 2. Fallback to local / bundled seed store
     if (!user) {
-      try {
-        const { getSupabaseAdmin } = require('@/lib/supabase');
-        const supabase = getSupabaseAdmin();
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .or(`username.ilike.${normalizedUsername},email.ilike.${normalizedUsername},employeeId.ilike.${normalizedUsername}`)
-          .limit(1)
-          .maybeSingle();
-        if (data) user = data;
-      } catch {}
+      user = findUserByUsername(normalizedUsername);
     }
 
     if (!user) {
+      console.warn(`[Login] User not found: "${normalizedUsername}"`);
       return NextResponse.json(
         { error: 'Invalid username or password' },
         { status: 401 }
@@ -40,6 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (user.status !== 'active') {
+      console.warn(`[Login] Inactive user login attempt: "${user.username}" (status: "${user.status}")`);
       if (user.status === 'rejected') {
         return NextResponse.json(
           { error: 'Your access request has been rejected. Please contact support.' },
@@ -58,16 +115,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let isPasswordValid = false;
-    try {
-      if (typeof user.passwordHash === 'string' && /^\$2[aby]\$/.test(user.passwordHash)) {
-        isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-      }
-    } catch {
-      isPasswordValid = false;
-    }
+    const isPasswordValid = await verifyPassword(password, user.passwordHash);
 
     if (!isPasswordValid) {
+      console.warn(`[Login] Password mismatch for user: "${user.username}"`);
       return NextResponse.json(
         { error: 'Invalid username or password' },
         { status: 401 }
