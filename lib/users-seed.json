@@ -299,15 +299,43 @@
     "role": "intern",
     "employmentType": "part-time",
     "fullName": "Nagaraj K",
-    "designation": "Not Set",
+    "designation": "Intern - Web Development",
     "profilePictureUploaded": false,
-    "status": "pending_approval",
-    "approvalStage": 0,
+    "status": "active",
+    "approvalStage": 2,
     "registrationApprovalVersion": 3,
-    "approvalHistory": [],
+    "approvalHistory": [
+      {
+        "actorId": "user-002",
+        "actorUsername": "hareeshv",
+        "actorRole": "managing-partner",
+        "decision": "approve",
+        "remarks": "Approved",
+        "createdAt": "2026-11-22T11:57:42.891553+00:00"
+      },
+      {
+        "actorId": "user-003",
+        "actorUsername": "santhanakumarv",
+        "actorRole": "managing-partner",
+        "decision": "approve",
+        "remarks": "Approved",
+        "createdAt": "2026-11-22T11:57:42.891553+00:00"
+      },
+      {
+        "actorId": "founder-001",
+        "actorUsername": "gkbharath",
+        "actorRole": "founder",
+        "decision": "approve",
+        "remarks": "Final Approval",
+        "createdAt": "2026-11-22T11:57:42.891553+00:00"
+      }
+    ],
     "approvalRemarks": "Internship",
-    "emailVerified": false,
+    "emailVerified": true,
     "requestedAt": "2026-11-16T13:28:48.372Z",
-    "createdAt": "2026-11-16T13:28:48.372Z"
+    "createdAt": "2026-11-16T13:28:48.372Z",
+    "approvedAt": "2026-11-22T11:57:42.891553+00:00",
+    "guideId": "SMIB-EMP-cb29066e-397b-4d3d-bd88-04ee5d654d69",
+    "guideName": "SABIR M"
   }
 ]
