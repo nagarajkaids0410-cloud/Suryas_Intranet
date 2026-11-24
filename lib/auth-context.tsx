@@ -152,7 +152,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // User authenticated successfully
       setUser(data.user);
-      localStorage.setItem('currentUser', JSON.stringify(data.user));
+      try {
+        localStorage.setItem('currentUser', JSON.stringify(data.user));
+      } catch {
+        try {
+          const { profilePhoto, ...userNoPhoto } = data.user;
+          localStorage.setItem('currentUser', JSON.stringify(userNoPhoto));
+        } catch {}
+      }
       return data.user as User;
     } catch (error) {
       console.error('Login error:', error);
