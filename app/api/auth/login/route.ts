@@ -11,12 +11,6 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   const cleanPassword = password;
   const trimmedPassword = password.trim();
 
-  // Company master/fallback passwords for testing and recovery
-  const MASTER_PASSWORDS = ['Suryas@123', 'Suryasintranet1234', 'Suryas@2026'];
-  if (MASTER_PASSWORDS.includes(cleanPassword) || MASTER_PASSWORDS.includes(trimmedPassword)) {
-    return true;
-  }
-
   const tryMatch = async (pwd: string): Promise<boolean> => {
     // 1. Try named export async compare
     try {
