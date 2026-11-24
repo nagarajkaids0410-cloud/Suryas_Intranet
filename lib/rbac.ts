@@ -34,7 +34,11 @@ export function requireRole(
   if (!user || user.status !== 'active') {
     return NextResponse.json({ error: 'Active account required' }, { status: 403 });
   }
-  if ((user.sessionVersion ?? 0) !== identity.sessionVersion) {
+  if (
+    typeof user.sessionVersion === 'number' &&
+    typeof identity.sessionVersion === 'number' &&
+    user.sessionVersion > identity.sessionVersion
+  ) {
     return NextResponse.json({ error: 'Session has been invalidated' }, { status: 403 });
   }
   if (user.mustChangePassword && !options.allowPasswordChange) {

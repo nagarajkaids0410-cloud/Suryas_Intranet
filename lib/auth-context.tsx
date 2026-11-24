@@ -79,10 +79,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const refreshCurrentUser = async () => {
       try {
         const response = await fetch('/api/users/directory?scope=me', { cache: 'no-store' });
-        if (response.status === 403) {
-          if (active) {
-            setUser(null);
-            localStorage.removeItem('currentUser');
+        if (response.status === 401 || response.status === 403) {
+          const body = await response.json().catch(() => null);
+          if (body?.error === 'Authentication required' || body?.error === 'Session has been invalidated') {
+            if (active) {
+              setUser(null);
+              localStorage.removeItem('currentUser');
+            }
           }
           return;
         }
@@ -96,7 +99,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
           if (!hasChanged) return currentUser;
           const refreshedUser = { ...currentUser, ...data.user };
-          localStorage.setItem('currentUser', JSON.stringify(refreshedUser));
+          try {
+            localStorage.setItem('currentUser', JSON.stringify(refreshedUser));
+          } catch {
+            try {
+              const { profilePhoto, ...userNoPhoto } = refreshedUser;
+              localStorage.setItem('currentUser', JSON.stringify(userNoPhoto));
+            } catch {}
+          }
           return refreshedUser;
         });
       } catch (error) {

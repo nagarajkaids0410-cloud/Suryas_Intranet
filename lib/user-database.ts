@@ -117,14 +117,14 @@ export function findUserByUsername(username: string): StoredUser | undefined {
 export function findUserById(id: string): StoredUser | undefined {
   if (!id) return undefined;
 
-  let user = users.find((u) => u.id === id);
+  let user = users.find((u) => u.id === id || u.username.toLowerCase() === id.toLowerCase());
 
   if (!user) {
     try {
       const { loadUsersFromDB } = require('./user-db');
       const fileUsers = loadUsersFromDB();
       if (fileUsers && fileUsers.length > 0) {
-        user = fileUsers.find((u: StoredUser) => u.id === id);
+        user = fileUsers.find((u: StoredUser) => u.id === id || u.username.toLowerCase() === id.toLowerCase());
         if (user) {
           const idx = users.findIndex((u) => u.id === user!.id);
           if (idx !== -1) users[idx] = user;

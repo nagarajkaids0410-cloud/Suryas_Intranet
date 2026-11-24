@@ -26,7 +26,11 @@ export async function GET(request: NextRequest) {
   const allUsers: StoredUser[] = supabaseUsers && supabaseUsers.length > 0 ? supabaseUsers : getAllUsers();
 
   if (scope === 'me') {
-    const user = allUsers.find((candidate) => candidate.id === auth.id && candidate.status === 'active');
+    const user = allUsers.find(
+      (candidate) =>
+        (candidate.id === auth.id || candidate.username.toLowerCase() === auth.username.toLowerCase()) &&
+        candidate.status === 'active'
+    );
     if (!user) return NextResponse.json({ error: 'Active account required' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
     return NextResponse.json({
       success: true,
