@@ -180,104 +180,16 @@ export async function recordAttendanceAndSync(
   date: string,
   action: 'check-in' | 'check-out'
 ): Promise<AttendanceRecord> {
-  const supabase = getSupabaseAdmin();
-
-  // Always check live Supabase for this user and date first
-  let dateUserRecords: AttendanceRecord[] | null = null;
-  try {
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('userId', user.id)
-      .eq('date', date);
-    if (!error && Array.isArray(data)) {
-      dateUserRecords = data as AttendanceRecord[];
-      for (const r of dateUserRecords) {
-        cachedAttendance.set(r.id, r);
-      }
-    }
-  } catch (err) {
-    console.warn('[Supabase recordAttendanceAndSync lookup error]:', err);
-  }
-
-  const existing = dateUserRecords
-    ? dateUserRecords[0]
-    : readDB().find((r) => r.userId === user.id && r.date === date);
-
-  if (action === 'check-in') {
-    if (existing) throw new Error('You have already checked in today');
-    const record: AttendanceRecord = {
-      id: randomUUID(),
-      userId: user.id,
-      username: user.username,
-      fullName: user.fullName,
-      employeeId: user.employeeId,
-      date,
-      checkIn: new Date().toISOString(),
-    };
-    const row: Record<string, unknown> = { ...record };
-    if (row.employeeId === undefined) delete row.employeeId;
-
-    const { error } = await supabase.from('attendance_records').upsert(row);
-    if (error) {
-      console.error('[Supabase check-in error]:', error);
-      throw new Error(error.message || 'Failed to persist check-in');
-    }
-
-    const dateRecords = readDB().filter((r) => r.date === date);
-    dateRecords.push(record);
-    writeDateFile(date, dateRecords);
-    return record;
-  }
-
-  if (!existing) throw new Error('Check in before checking out');
-  if (existing.checkOut) throw new Error('You have already checked out today');
-
-  const checkOutTime = new Date().toISOString();
-  const { error } = await supabase
-    .from('attendance_records')
-    .update({ checkOut: checkOutTime })
-    .eq('id', existing.id);
-  if (error) {
-    console.error('[Supabase check-out error]:', error);
-    throw new Error(error.message || 'Failed to persist check-out');
-  }
-
-  const updated: AttendanceRecord = { ...existing, checkOut: checkOutTime };
-  cachedAttendance.set(updated.id, updated);
-  const dateRecords = readDB().filter((r) => r.date === date);
-  const idx = dateRecords.findIndex((r) => r.id === updated.id);
-  if (idx !== -1) dateRecords[idx] = updated;
-  else dateRecords.push(updated);
-  writeDateFile(date, dateRecords);
-
-  return updated;
-}
-
-export async function autoCheckOutForDateAsync(date: string, checkedOutAt = new Date().toISOString()): Promise<AttendanceRecord[]> {
+  const record = recordAttendance(user, date, action);
   try {
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('date', date)
-      .is('checkOut', null);
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const openRecords = (data as AttendanceRecord[]).map((r) => ({ ...r, checkOut: checkedOutAt }));
-      const ids = openRecords.map((r) => r.id);
-      const { error: updateErr } = await supabase
-        .from('attendance_records')
-        .update({ checkOut: checkedOutAt })
-        .in('id', ids);
-      if (updateErr) {
-        console.error('[Supabase autoCheckOutForDateAsync error]:', updateErr);
-      }
-      for (const r of openRecords) cachedAttendance.set(r.id, r);
-      return openRecords;
+    if (action === 'check-in') {
+      await supabase.from('attendance_records').upsert(record);
+    } else {
+      await supabase.from('attendance_records').update({ checkOut: record.checkOut }).eq('id', record.id);
     }
-    if (!error) return [];
   } catch (err) {
-    console.warn('[Supabase autoCheckOutForDateAsync exception]:', err);
+    console.warn('[Supabase recordAttendanceAndSync error]:', err);
   }
-  return autoCheckOutForDate(date, checkedOutAt);
+  return record;
 }

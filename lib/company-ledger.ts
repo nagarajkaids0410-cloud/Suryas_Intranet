@@ -149,57 +149,16 @@ export async function addLedgerTransactionAndSync(input: {
   modeOfPayment?: string;
   date?: string;
 }): Promise<CompanyLedger> {
-  const supabase = getSupabaseAdmin();
-  const currentLedger = await fetchLedgerFromSupabase();
-  const normalizedAmount = Number(input.amount);
-  const delta = input.type === 'credited' ? normalizedAmount : -normalizedAmount;
-  const nextBalance = Number((currentLedger.balance + delta).toFixed(2));
-
-  const transaction: LedgerTransaction = {
-    id: `txn-${Date.now()}`,
-    date: input.date || new Date().toISOString(),
-    amount: normalizedAmount,
-    purpose: input.purpose,
-    remarks: input.remarks,
-    type: input.type,
-    balanceAfter: nextBalance,
-    requestId: input.requestId,
-    requestType: input.requestType,
-    amountBy: input.amountBy,
-    modeOfPayment: input.modeOfPayment,
-  };
-
-  const nextLedger: CompanyLedger = {
-    balance: nextBalance,
-    transactions: [transaction, ...currentLedger.transactions],
-  };
-
-  writeLedger(nextLedger);
-
-  const { error: txnError } = await supabase.from('company_ledger_transactions').upsert(transaction);
-  if (txnError) {
-    console.error('[Supabase addLedgerTransactionAndSync txn error]:', txnError);
-    throw new Error(txnError.message || 'Failed to record ledger transaction');
-  }
-
-  const { error: summaryError } = await supabase
-    .from('company_ledger_summary')
-    .upsert({ id: 1, balance: nextBalance, updatedAt: new Date().toISOString() });
-  if (summaryError) {
-    console.error('[Supabase addLedgerTransactionAndSync summary error]:', summaryError);
-    throw new Error(summaryError.message || 'Failed to update ledger balance');
-  }
-
+  const nextLedger = addLedgerTransaction(input);
   try {
-    const { addAuditEntryAndSync } = await import('./audit-log');
-    await addAuditEntryAndSync({
-      action: `financial:${input.type}`,
-      actor: input.amountBy || 'system',
-      details: { amount: input.amount, purpose: input.purpose, modeOfPayment: input.modeOfPayment, balanceAfter: nextBalance },
-    });
-  } catch (e) {
-    console.error('Audit log failed for ledger transaction', e);
+    const supabase = getSupabaseAdmin();
+    const txn = nextLedger.transactions[0];
+    if (txn) {
+      await supabase.from('company_ledger_transactions').upsert(txn);
+    }
+    await supabase.from('company_ledger_summary').upsert({ id: 1, balance: nextLedger.balance, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn('[Supabase addLedgerTransactionAndSync error]:', err);
   }
-
   return nextLedger;
 }

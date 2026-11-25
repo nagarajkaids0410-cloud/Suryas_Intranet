@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { getUserByEmployeeId } from '@/lib/portal-store';
+import { ensureFounderSeed, getUserByEmployeeId } from '@/lib/portal-store';
 import { createSessionToken, setSessionCookie } from '@/lib/auth';
 
 export async function POST(request: Request) {
@@ -9,11 +9,8 @@ export async function POST(request: Request) {
     const employeeId = String(body.employeeId || '').trim();
     const password = String(body.password || '');
 
-    if (!employeeId || !password) {
-      return NextResponse.json({ error: 'Employee ID and password are required' }, { status: 400 });
-    }
-
-    const user = await getUserByEmployeeId(employeeId);
+    ensureFounderSeed();
+    const user = getUserByEmployeeId(employeeId);
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return NextResponse.json({ error: 'Invalid employee ID or password' }, { status: 401 });
     }
@@ -27,23 +24,13 @@ export async function POST(request: Request) {
       email: user.email,
       role: user.role,
       name: user.name,
-      department: user.department ?? undefined,
+      department: user.department,
     });
 
     await setSessionCookie(token);
 
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        employeeId: user.employeeId,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-    });
+    return NextResponse.json({ success: true, user: { id: user.id, employeeId: user.employeeId, email: user.email, name: user.name, role: user.role } });
   } catch (error) {
-    console.error('[login] error:', error);
-    return NextResponse.json({ error: 'Unable to sign in. Please try again.' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to sign in' }, { status: 500 });
   }
 }

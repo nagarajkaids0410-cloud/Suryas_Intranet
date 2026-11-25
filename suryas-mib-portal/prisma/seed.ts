@@ -1,110 +1,75 @@
-/**
- * prisma/seed.ts
- * Seeds the initial admin and partner accounts.
- * Password for all accounts: Suryas@123
- *
- * Run with:  npm run db:seed
- */
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const DEFAULT_PASSWORD = process.env.BOOTSTRAP_ADMIN_PASSWORD ?? 'Suryas@123';
-
 async function main() {
-  console.log('⏳ Seeding database...');
+  const founderPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  const operationsPartnerPassword = process.env.BOOTSTRAP_SANTHANA_PASSWORD;
+  const projectsPartnerPassword = process.env.BOOTSTRAP_HAREESH_PASSWORD;
+  if (!founderPassword || !operationsPartnerPassword || !projectsPartnerPassword) {
+    throw new Error(
+      'Set unique BOOTSTRAP_ADMIN_PASSWORD, BOOTSTRAP_SANTHANA_PASSWORD, and BOOTSTRAP_HAREESH_PASSWORD values before seeding accounts.'
+    );
+  }
+  const founderHash = await bcrypt.hash(founderPassword, 10);
 
-  // Ensure departments exist
-  const execDept = await prisma.department.upsert({
-    where: { name: 'Executive' },
-    update: {},
-    create: { name: 'Executive', description: 'Executive leadership' },
-  });
-
-  const opsDept = await prisma.department.upsert({
+  const department = await prisma.department.upsert({
     where: { name: 'Operations' },
     update: {},
-    create: { name: 'Operations', description: 'Operations & Business Development' },
+    create: { name: 'Operations', description: 'Core operations' },
   });
 
-  const projectsDept = await prisma.department.upsert({
-    where: { name: 'Projects' },
-    update: {},
-    create: { name: 'Projects', description: 'Projects & Administration' },
-  });
-
-  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
-
-  // Founder / System Admin
-  const founder = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { employeeId: 'MIB01' },
-    update: { passwordHash, status: 'ACTIVE' },
+    update: {},
     create: {
       employeeId: 'MIB01',
       name: 'G K Bharath',
       email: 'bharath@suryas.in',
       phone: '+91-90000-00001',
-      passwordHash,
+      passwordHash: founderHash,
       role: 'SYSTEM_ADMIN',
-      departmentId: execDept.id,
+      departmentId: department.id,
       designation: 'Founder & Chief Executive Partner',
       status: 'ACTIVE',
     },
   });
-  console.log(`✅ Upserted founder: ${founder.employeeId} (${founder.name})`);
 
-  // Managing Partner – Operations
-  const santhana = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { employeeId: 'MIB02' },
-    update: { passwordHash, status: 'ACTIVE' },
+    update: {},
     create: {
       employeeId: 'MIB02',
       name: 'Santhana Kumar V',
       email: 'santhana@suryas.in',
       phone: '+91-90000-00002',
-      passwordHash,
+      passwordHash: await bcrypt.hash(operationsPartnerPassword, 10),
       role: 'MANAGING_PARTNER',
-      departmentId: opsDept.id,
+      departmentId: department.id,
       designation: 'Managing Partner – Operations & Business Development',
       status: 'ACTIVE',
     },
   });
-  console.log(`✅ Upserted: ${santhana.employeeId} (${santhana.name})`);
 
-  // Managing Partner – Projects
-  const hareesh = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { employeeId: 'MIB03' },
-    update: { passwordHash, status: 'ACTIVE' },
+    update: {},
     create: {
       employeeId: 'MIB03',
       name: 'Hareesh V',
       email: 'hareesh@suryas.in',
       phone: '+91-90000-00003',
-      passwordHash,
+      passwordHash: await bcrypt.hash(projectsPartnerPassword, 10),
       role: 'MANAGING_PARTNER',
-      departmentId: projectsDept.id,
+      departmentId: department.id,
       designation: 'Managing Partner – Projects & Administration',
       status: 'ACTIVE',
     },
   });
-  console.log(`✅ Upserted: ${hareesh.employeeId} (${hareesh.name})`);
-
-  console.log('\n🎉 Seed complete!');
-  console.log('────────────────────────────────');
-  console.log('  Employee ID │ Password');
-  console.log('  ───────────┼─────────────');
-  console.log(`  MIB01      │ ${DEFAULT_PASSWORD}`);
-  console.log(`  MIB02      │ ${DEFAULT_PASSWORD}`);
-  console.log(`  MIB03      │ ${DEFAULT_PASSWORD}`);
-  console.log('────────────────────────────────');
 }
 
-main()
-  .catch((error) => {
-    console.error('❌ Seed failed:', error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

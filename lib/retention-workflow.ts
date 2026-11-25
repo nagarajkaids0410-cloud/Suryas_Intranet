@@ -1,11 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as XLSX from 'xlsx';
-import { addAuditEntry, addAuditEntryAndSync } from './audit-log';
-import { addNotificationDB, addNotificationAndSyncDB, readNotificationsDB } from './notification-db';
-import { getSupabaseAdmin } from './supabase';
+import { addAuditEntry } from './audit-log';
+import { addNotificationDB, readNotificationsDB } from './notification-db';
 
 const DATA_DIR = path.join(process.cwd(), '.data');
 const WORKFLOW_FILE = path.join(DATA_DIR, 'retention-workflow.json');

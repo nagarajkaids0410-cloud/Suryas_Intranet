@@ -49,9 +49,8 @@ function writeDB(users: StoredUser[]): boolean {
   return true;
 }
 
-export function saveUsersToDB(users: StoredUser[], options?: { skipSupabase?: boolean }) {
+export function saveUsersToDB(users: StoredUser[]) {
   writeDB(users);
-  if (options?.skipSupabase) return;
   try {
     const supabase = getSupabaseAdmin();
     Promise.resolve(supabase.from('users').upsert(users)).catch(() => {});
@@ -62,7 +61,7 @@ export function loadUsersFromDB(): StoredUser[] {
   return readDB();
 }
 
-export function updateUserInDB(id: string, updates: Partial<StoredUser>, options?: { skipSupabase?: boolean }) {
+export function updateUserInDB(id: string, updates: Partial<StoredUser>) {
   const users = readDB();
   const index = users.findIndex((u) => u.id === id);
   if (index !== -1) {
@@ -70,17 +69,15 @@ export function updateUserInDB(id: string, updates: Partial<StoredUser>, options
     writeDB(users);
   }
 
-  if (!options?.skipSupabase) {
-    try {
-      const supabase = getSupabaseAdmin();
-      Promise.resolve(supabase.from('users').update(updates).eq('id', id)).catch(() => {});
-    } catch {}
-  }
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('users').update(updates).eq('id', id)).catch(() => {});
+  } catch {}
 
   return index !== -1 ? users[index] : undefined;
 }
 
-export function updateUserByUsernameInDB(username: string, updates: Partial<StoredUser>, options?: { skipSupabase?: boolean }) {
+export function updateUserByUsernameInDB(username: string, updates: Partial<StoredUser>) {
   const users = readDB();
   const index = users.findIndex((u) => u.username === username);
   if (index !== -1) {
@@ -88,12 +85,10 @@ export function updateUserByUsernameInDB(username: string, updates: Partial<Stor
     writeDB(users);
   }
 
-  if (!options?.skipSupabase) {
-    try {
-      const supabase = getSupabaseAdmin();
-      Promise.resolve(supabase.from('users').update(updates).eq('username', username)).catch(() => {});
-    } catch {}
-  }
+  try {
+    const supabase = getSupabaseAdmin();
+    Promise.resolve(supabase.from('users').update(updates).eq('username', username)).catch(() => {});
+  } catch {}
 
   return index !== -1 ? users[index] : undefined;
 }

@@ -1,9 +1,3 @@
-/**
- * portal-store.ts
- * Database-backed user store using Prisma + Supabase PostgreSQL.
- * Replaces the former in-memory arrays so data persists across restarts.
- */
-import { db } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
 export type UserRole = 'SYSTEM_ADMIN' | 'MANAGING_PARTNER' | 'RECOMMENDER' | 'EMPLOYEE';
@@ -14,12 +8,11 @@ export type PortalUser = {
   employeeId: string;
   name: string;
   email: string;
-  phone?: string | null;
+  phone?: string;
   passwordHash: string;
   role: UserRole;
-  department?: string | null;
-  departmentId?: string | null;
-  designation?: string | null;
+  department?: string;
+  designation?: string;
   status: UserStatus;
   createdAt: string;
   updatedAt: string;
@@ -30,218 +23,118 @@ export type RegistrationRequest = {
   employeeId: string;
   name: string;
   email: string;
-  phone?: string | null;
-  department?: string | null;
-  designation?: string | null;
+  phone?: string;
+  department?: string;
+  designation?: string;
   requestedRole: UserRole;
   passwordHash: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  remarks?: string | null;
+  remarks?: string;
   createdAt: string;
-  reviewedAt?: string | null;
+  reviewedAt?: string;
 };
 
-// ─── Helper: map Prisma user row → PortalUser ─────────────────────────────
-function mapUser(u: any): PortalUser {
-  return {
-    id: u.id,
-    employeeId: u.employeeId,
-    name: u.name,
-    email: u.email,
-    phone: u.phone,
-    passwordHash: u.passwordHash,
-    role: u.role as UserRole,
-    department: u.department?.name ?? null,
-    departmentId: u.departmentId,
-    designation: u.designation,
-    status: u.status as UserStatus,
-    createdAt: u.createdAt?.toISOString?.() ?? u.createdAt,
-    updatedAt: u.updatedAt?.toISOString?.() ?? u.updatedAt,
-  };
-}
+const users: PortalUser[] = [];
+const registrationRequests: RegistrationRequest[] = [];
 
-// ─── Helper: map Prisma registration row → RegistrationRequest ────────────
-function mapReg(r: any): RegistrationRequest {
-  return {
-    id: r.id,
-    employeeId: r.employeeId,
-    name: r.name,
-    email: r.email,
-    phone: r.phone,
-    department: r.department,
-    designation: r.designation,
-    requestedRole: r.requestedRole as UserRole,
-    passwordHash: r.passwordHash,
-    status: r.status as 'PENDING' | 'APPROVED' | 'REJECTED',
-    remarks: r.remarks,
-    createdAt: r.createdAt?.toISOString?.() ?? r.createdAt,
-    reviewedAt: r.reviewedAt?.toISOString?.() ?? r.reviewedAt ?? null,
-  };
-}
-
-// ─── Seed founder on first call if missing ────────────────────────────────
-let founderSeeded = false;
-
-export async function ensureFounderSeedAsync(): Promise<PortalUser> {
-  // Check DB first
-  const existing = await db.user.findFirst({
-    where: { role: 'SYSTEM_ADMIN' },
-    include: { department: true },
-  });
-  if (existing) {
-    founderSeeded = true;
-    return mapUser(existing);
-  }
+export function ensureFounderSeed() {
+  const existing = users.find((u) => u.role === 'SYSTEM_ADMIN');
+  if (existing) return existing;
 
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   if (!password) {
-    throw new Error('Set BOOTSTRAP_ADMIN_PASSWORD in .env before the first run.');
+    throw new Error('Set BOOTSTRAP_ADMIN_PASSWORD before initializing the Founder account.');
   }
+  const hash = bcrypt.hashSync(password, 10);
+  const founder: PortalUser = {
+    id: 'founder-001',
+    employeeId: 'MIB01',
+    name: 'G K Bharath',
+    email: 'bharath@suryas.in',
+    phone: '+91-00000-00000',
+    passwordHash: hash,
+    role: 'SYSTEM_ADMIN',
+    department: 'Executive',
+    designation: 'Founder & Chief Executive Partner',
+    status: 'ACTIVE',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
-  const hash = await bcrypt.hash(password, 10);
-
-  // Ensure department exists
-  const dept = await db.department.upsert({
-    where: { name: 'Executive' },
-    update: {},
-    create: { name: 'Executive', description: 'Executive leadership' },
-  });
-
-  const founder = await db.user.create({
-    data: {
-      employeeId: 'MIB01',
-      name: 'G K Bharath',
-      email: 'bharath@suryas.in',
-      phone: '+91-90000-00001',
-      passwordHash: hash,
-      role: 'SYSTEM_ADMIN',
-      departmentId: dept.id,
-      designation: 'Founder & Chief Executive Partner',
-      status: 'ACTIVE',
-    },
-    include: { department: true },
-  });
-
-  founderSeeded = true;
-  return mapUser(founder);
+  users.push(founder);
+  return founder;
 }
 
-/** Sync wrapper – used by legacy login route. Schedules async seed but does
- *  not block.  Call ensureFounderSeedAsync() in async contexts instead. */
-export function ensureFounderSeed(): void {
-  if (!founderSeeded) {
-    ensureFounderSeedAsync().catch(() => {});
-  }
+export function getUsers() {
+  return users;
 }
 
-// ─── User queries ─────────────────────────────────────────────────────────
-
-export async function getUsers(): Promise<PortalUser[]> {
-  const rows = await db.user.findMany({ include: { department: true }, orderBy: { createdAt: 'asc' } });
-  return rows.map(mapUser);
+export function getUserByEmail(email: string) {
+  return users.find((u) => u.email.toLowerCase() === email.toLowerCase());
 }
 
-export async function getUserByEmail(email: string): Promise<PortalUser | null> {
-  const row = await db.user.findFirst({
-    where: { email: { equals: email, mode: 'insensitive' } },
-    include: { department: true },
-  });
-  return row ? mapUser(row) : null;
+export function getUserByEmployeeId(employeeId: string) {
+  return users.find((u) => u.employeeId.toLowerCase() === employeeId.toLowerCase());
 }
 
-export async function getUserByEmployeeId(employeeId: string): Promise<PortalUser | null> {
-  const row = await db.user.findFirst({
-    where: { employeeId: { equals: employeeId, mode: 'insensitive' } },
-    include: { department: true },
-  });
-  return row ? mapUser(row) : null;
+export function createRegistrationRequest(input: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt' | 'reviewedAt'> & { status?: 'PENDING' | 'APPROVED' | 'REJECTED' }) {
+  const request: RegistrationRequest = {
+    ...input,
+    id: `reg-${Date.now()}`,
+    status: input.status || 'PENDING',
+    createdAt: new Date().toISOString(),
+  };
+  registrationRequests.push(request);
+  return request;
 }
 
-// ─── Registration requests ────────────────────────────────────────────────
-
-export async function createRegistrationRequest(
-  input: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt' | 'reviewedAt'> & {
-    status?: 'PENDING' | 'APPROVED' | 'REJECTED';
-  }
-): Promise<RegistrationRequest> {
-  const row = await db.registrationRequest.create({
-    data: {
-      employeeId: input.employeeId,
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      department: input.department,
-      designation: input.designation,
-      requestedRole: input.requestedRole,
-      passwordHash: input.passwordHash,
-      status: input.status ?? 'PENDING',
-      remarks: input.remarks,
-    },
-  });
-  return mapReg(row);
+export function getRegistrationRequests() {
+  return registrationRequests;
 }
 
-export async function getRegistrationRequests(): Promise<RegistrationRequest[]> {
-  const rows = await db.registrationRequest.findMany({ orderBy: { createdAt: 'desc' } });
-  return rows.map(mapReg);
-}
-
-export async function approveRegistrationRequest(id: string): Promise<PortalUser | null> {
-  const request = await db.registrationRequest.findUnique({ where: { id } });
+export function approveRegistrationRequest(id: string) {
+  const request = registrationRequests.find((r) => r.id === id);
   if (!request) return null;
 
-  // Check for duplicate email in users table
-  const dup = await db.user.findFirst({ where: { email: { equals: request.email, mode: 'insensitive' } } });
-  if (dup) throw new Error('Duplicate email');
-
-  // Upsert department if provided
-  let deptId: string | undefined;
-  if (request.department) {
-    const dept = await db.department.upsert({
-      where: { name: request.department },
-      update: {},
-      create: { name: request.department },
-    });
-    deptId = dept.id;
+  if (getUserByEmail(request.email)) {
+    throw new Error('Duplicate email');
   }
 
-  const user = await db.user.create({
-    data: {
-      employeeId: request.employeeId,
-      name: request.name,
-      email: request.email,
-      phone: request.phone,
-      passwordHash: request.passwordHash,
-      role: request.requestedRole,
-      departmentId: deptId,
-      designation: request.designation,
-      status: 'ACTIVE',
-    },
-    include: { department: true },
-  });
+  const user: PortalUser = {
+    id: `user-${Date.now()}`,
+    employeeId: request.employeeId,
+    name: request.name,
+    email: request.email,
+    phone: request.phone,
+    passwordHash: request.passwordHash,
+    role: request.requestedRole,
+    department: request.department,
+    designation: request.designation,
+    status: 'ACTIVE',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
-  await db.registrationRequest.update({
-    where: { id },
-    data: { status: 'APPROVED', reviewedAt: new Date() },
-  });
-
-  return mapUser(user);
+  users.push(user);
+  request.status = 'APPROVED';
+  request.reviewedAt = new Date().toISOString();
+  return user;
 }
 
-export async function findUserByCredentials(email: string, password: string): Promise<PortalUser | null> {
-  const user = await getUserByEmail(email);
+export function findUserByCredentials(email: string, password: string) {
+  const user = getUserByEmail(email);
   if (!user) return null;
-  const valid = await bcrypt.compare(password, user.passwordHash);
+  const valid = bcrypt.compareSync(password, user.passwordHash);
   if (!valid) return null;
   return user;
 }
 
-export async function listDashboardStats() {
-  const [totalUsers, activeUsers, pendingReg, admins] = await Promise.all([
-    db.user.count(),
-    db.user.count({ where: { status: 'ACTIVE' } }),
-    db.registrationRequest.count({ where: { status: 'PENDING' } }),
-    db.user.count({ where: { role: 'SYSTEM_ADMIN' } }),
-  ]);
-  return { totalUsers, activeUsers, pendingRegistrations: pendingReg, admins };
+export function listDashboardStats() {
+  const activeUsers = users.filter((u) => u.status === 'ACTIVE').length;
+  return {
+    totalUsers: users.length,
+    activeUsers,
+    pendingRegistrations: registrationRequests.filter((r) => r.status === 'PENDING').length,
+    admins: users.filter((u) => u.role === 'SYSTEM_ADMIN').length,
+  };
 }

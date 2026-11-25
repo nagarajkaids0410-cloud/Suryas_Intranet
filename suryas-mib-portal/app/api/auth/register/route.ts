@@ -9,42 +9,34 @@ export async function POST(request: Request) {
     const name = String(body.name || '').trim();
     const email = String(body.email || '').trim();
     const password = String(body.password || '');
-    const department = String(body.department || '').trim() || null;
-    const designation = String(body.designation || '').trim() || null;
-    const requestedRole = String(body.requestedRole || 'EMPLOYEE') as any;
+    const department = String(body.department || '').trim();
+    const designation = String(body.designation || '').trim();
+    const requestedRole = String(body.requestedRole || 'EMPLOYEE');
 
-    if (!employeeId || !name || !email || !password) {
-      return NextResponse.json({ error: 'Missing required fields: employeeId, name, email, password' }, { status: 400 });
+    if (!employeeId || !name || !email || !designation || !password) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Check for duplicates in DB
-    const [existingEmail, existingEmpId] = await Promise.all([
-      getUserByEmail(email),
-      getUserByEmployeeId(employeeId),
-    ]);
-
-    if (existingEmail || existingEmpId) {
-      return NextResponse.json({ error: 'Employee ID or email already exists' }, { status: 409 });
+    if (getUserByEmail(email) || getUserByEmployeeId(employeeId)) {
+      return NextResponse.json({ error: 'Employee already exists' }, { status: 409 });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-
-    await createRegistrationRequest({
+    createRegistrationRequest({
       employeeId,
       name,
       email,
-      phone: String(body.phone || '').trim() || null,
+      phone: String(body.phone || ''),
       department,
       designation,
-      requestedRole,
+      requestedRole: requestedRole as any,
       passwordHash,
       status: 'PENDING',
-      remarks: 'Pending admin approval',
+      remarks: 'Pending Bharath approval',
     });
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
-    console.error('[register] error:', error);
-    return NextResponse.json({ error: 'Registration request failed. Please try again.' }, { status: 500 });
+    return NextResponse.json({ error: 'Registration request failed' }, { status: 500 });
   }
 }

@@ -94,34 +94,3 @@ export function updateCircularDB(
 
   return circulars[index];
 }
-
-export async function updateCircularAndSyncDB(
-  id: string,
-  updates: Pick<Circular, 'title' | 'content' | 'priority' | 'meta'>
-): Promise<Circular | undefined> {
-  const localUpdated = updateCircularDB(id, updates);
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('circulars')
-      .update(updates)
-      .eq('id', id)
-      .select('*')
-      .maybeSingle();
-    if (error) {
-      console.error('[Supabase updateCircularAndSyncDB error]:', error);
-      return localUpdated;
-    }
-    if (data) {
-      const circulars = cachedCirculars || getCircularsDB();
-      const idx = circulars.findIndex((c) => c.id === id);
-      if (idx !== -1) circulars[idx] = data as Circular;
-      else circulars.unshift(data as Circular);
-      writeCircularsDB(circulars);
-      return data as Circular;
-    }
-  } catch (err) {
-    console.warn('[Supabase updateCircularAndSyncDB exception]:', err);
-  }
-  return localUpdated;
-}

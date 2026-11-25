@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionIdentity } from '@/lib/session';
-import { findUserById, findUserByIdAsync } from '@/lib/user-database';
+import { findUserById } from '@/lib/user-database';
 
 // Expanded role list to support the new structure
 export type Role =
@@ -48,36 +48,4 @@ export function requireRole(
     return NextResponse.json({ error: 'Forbidden: insufficient role' }, { status: 403 });
   }
   return { role: identity.role as Role, id: identity.userId, username: identity.username };
-}
-
-export async function requireRoleAsync(
-  req: Request | { headers: { get: (k: string) => string | null } },
-  allowed: Role[] | Role,
-  options: { allowPasswordChange?: boolean } = {}
-) {
-  const allowedRoles = Array.isArray(allowed) ? allowed : [allowed];
-  const identity = getSessionIdentity(req);
-
-  if (!identity) {
-    return NextResponse.json({ error: 'Authentication required' }, { status: 403 });
-  }
-  const user = await findUserByIdAsync(identity.userId, { includePhoto: false });
-  if (!user || user.status !== 'active') {
-    return NextResponse.json({ error: 'Active account required' }, { status: 403 });
-  }
-  if (
-    typeof user.sessionVersion === 'number' &&
-    typeof identity.sessionVersion === 'number' &&
-    user.sessionVersion > identity.sessionVersion
-  ) {
-    return NextResponse.json({ error: 'Session has been invalidated' }, { status: 403 });
-  }
-  if (user.mustChangePassword && !options.allowPasswordChange) {
-    return NextResponse.json({ error: 'Change your temporary password before continuing' }, { status: 403 });
-  }
-  const effectiveRole = (user.role || identity.role) as Role;
-  if (!allowedRoles.includes(effectiveRole)) {
-    return NextResponse.json({ error: 'Forbidden: insufficient role' }, { status: 403 });
-  }
-  return { role: effectiveRole, id: user.id || identity.userId, username: user.username || identity.username };
 }

@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { getSupabaseAdmin } from './supabase';
 
 const AUDIT_FILE = path.join(process.cwd(), '.data', 'audit-log.json');
 const AUDIT_JOURNAL_FILE = path.join(process.cwd(), '.data', 'audit-log.jsonl');
@@ -20,71 +19,20 @@ export interface AuditEntry {
   timestamp: string;
 }
 
-function buildAuditEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>): AuditEntry {
-  return {
-    id: `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    timestamp: new Date().toISOString(),
-    ...entry,
-  };
-}
-
-function appendLocalAuditEntry(next: AuditEntry) {
+export function addAuditEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>) {
   try {
     ensureDir();
+    const next: AuditEntry = {
+      id: `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+      ...entry,
+    };
     fs.appendFileSync(AUDIT_JOURNAL_FILE, `${JSON.stringify(next)}\n`, 'utf-8');
-  } catch {
-    // Read-only filesystem on Netlify is expected
+    return next;
+  } catch (error) {
+    console.error('Failed to write audit log:', error);
+    return null;
   }
-}
-
-export function addAuditEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>, options?: { skipSupabase?: boolean }) {
-  const next = buildAuditEntry(entry);
-  appendLocalAuditEntry(next);
-
-  if (!options?.skipSupabase) {
-    try {
-      const supabase = getSupabaseAdmin();
-      Promise.resolve(supabase.from('audit_logs').upsert(next)).catch((err) => {
-        console.warn('[Supabase addAuditEntry error]:', err);
-      });
-    } catch {}
-  }
-
-  return next;
-}
-
-export async function addAuditEntryAndSync(entry: Omit<AuditEntry, 'id' | 'timestamp'>): Promise<AuditEntry> {
-  const next = buildAuditEntry(entry);
-  appendLocalAuditEntry(next);
-
-  try {
-    const supabase = getSupabaseAdmin();
-    const { error } = await supabase.from('audit_logs').upsert(next);
-    if (error) {
-      console.error('[Supabase addAuditEntryAndSync error]:', error);
-    }
-  } catch (err) {
-    console.error('[Supabase addAuditEntryAndSync exception]:', err);
-  }
-
-  return next;
-}
-
-export async function readAuditLogFromSupabase(): Promise<AuditEntry[]> {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(1000);
-    if (!error && Array.isArray(data)) {
-      return data as AuditEntry[];
-    }
-  } catch (err) {
-    console.warn('[Supabase readAuditLogFromSupabase error]:', err);
-  }
-  return readAuditLog();
 }
 
 export function readAuditLog(): AuditEntry[] {
@@ -100,6 +48,7 @@ export function readAuditLog(): AuditEntry[] {
       .reverse();
     return [...journalEntries, ...legacyEntries];
   } catch (error) {
+    console.error('Failed to read audit log:', error);
     return [];
   }
 }
