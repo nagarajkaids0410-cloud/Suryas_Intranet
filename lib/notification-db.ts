@@ -73,7 +73,7 @@ export async function fetchNotificationsFromSupabase(targetUsers: string | strin
   return getNotificationsByTargetDB(targets);
 }
 
-export function addNotificationsDB(entries: NewNotification[]): Notification[] {
+export function addNotificationsDB(entries: NewNotification[], options?: { skipSupabase?: boolean }): Notification[] {
   if (entries.length === 0) return [];
   const notifications = readNotificationsDB();
   const inserted: Notification[] = [];
@@ -112,23 +112,35 @@ export function addNotificationsDB(entries: NewNotification[]): Notification[] {
     notifications.unshift(...inserted);
     writeNotificationsDB(notifications);
 
-    // Sync to Supabase in background
-    try {
-      const supabase = getSupabaseAdmin();
-      Promise.resolve(supabase.from('notifications').upsert(inserted)).catch(() => {});
-    } catch {}
+    // Sync to Supabase in background only if not awaited by caller
+    if (!options?.skipSupabase) {
+      try {
+        const supabase = getSupabaseAdmin();
+        Promise.resolve(supabase.from('notifications').upsert(inserted)).catch(() => {});
+      } catch {}
+    }
   }
   return results;
 }
 
 export async function addNotificationsAndSyncDB(entries: NewNotification[]): Promise<Notification[]> {
-  const results = addNotificationsDB(entries);
+  const results = addNotificationsDB(entries, { skipSupabase: true });
   if (results.length > 0) {
     try {
       const supabase = getSupabaseAdmin();
-      await supabase.from('notifications').upsert(results);
+      const cleanRows = results.map((n) => {
+        const row: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(n)) {
+          if (v !== undefined) row[k] = v;
+        }
+        return row;
+      });
+      const { error } = await supabase.from('notifications').upsert(cleanRows);
+      if (error) {
+        console.error('[Supabase addNotificationsAndSyncDB error]:', error);
+      }
     } catch (err) {
-      console.warn('[Supabase addNotificationsAndSyncDB error]:', err);
+      console.warn('[Supabase addNotificationsAndSyncDB exception]:', err);
     }
   }
   return results;
@@ -214,4 +226,81 @@ export function markNotificationsByRelatedIdDB(
   }
 
   return updatedCount;
+}
+
+export async function fetchNotificationByIdFromSupabase(notificationId: string): Promise<Notification | undefined> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('id', notificationId)
+      .maybeSingle();
+    if (!error && data) return data as Notification;
+  } catch (err) {
+    console.warn('[Supabase fetchNotificationById error]:', err);
+  }
+  return readNotificationsDB().find((n) => n.id === notificationId);
+}
+
+export async function markAsReadAndSyncDB(notificationId: string): Promise<boolean> {
+  markAsReadDB(notificationId);
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', notificationId)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      console.error('[Supabase markAsReadAndSyncDB error]:', error);
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    console.error('[Supabase markAsReadAndSyncDB exception]:', err);
+    return false;
+  }
+}
+
+export async function markAllAsReadAndSyncDB(targetUsers: string | string[]): Promise<void> {
+  markAllAsReadDB(targetUsers);
+  const targets = Array.isArray(targetUsers) ? targetUsers : [targetUsers];
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .in('targetUser', [...targets, 'all']);
+    if (error) {
+      console.error('[Supabase markAllAsReadAndSyncDB error]:', error);
+    }
+  } catch (err) {
+    console.error('[Supabase markAllAsReadAndSyncDB exception]:', err);
+  }
+}
+
+export async function markNotificationsByRelatedIdAndSyncDB(
+  relatedId: string,
+  options?: { type?: string; targetUsers?: string[] }
+): Promise<number> {
+  const localCount = markNotificationsByRelatedIdDB(relatedId, options);
+  try {
+    const supabase = getSupabaseAdmin();
+    let query = supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('relatedId', relatedId)
+      .eq('read', false);
+    if (options?.type) query = query.eq('type', options.type);
+    if (options?.targetUsers && options.targetUsers.length > 0) query = query.in('targetUser', options.targetUsers);
+    const { data, error } = await query.select('id');
+    if (!error && Array.isArray(data)) {
+      return data.length;
+    }
+  } catch (err) {
+    console.warn('[Supabase markNotificationsByRelatedIdAndSyncDB error]:', err);
+  }
+  return localCount;
 }

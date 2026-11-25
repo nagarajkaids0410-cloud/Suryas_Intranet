@@ -1,4 +1,4 @@
-import { findUserById } from '@/lib/user-database';
+import { findUserById, getAllUsersAsync, StoredUser } from '@/lib/user-database';
 import { loadUsersFromDB } from '@/lib/user-db';
 import type { RequestItem } from '@/lib/request-store';
 
@@ -25,10 +25,11 @@ function withApprovalDisplayNames<T extends RequestItem>(request: T, usersByUser
   };
 }
 
-export function withCurrentSubmitterProfile<T extends RequestItem>(request: T): T {
-  const usersByUsername = new Map(loadUsersFromDB().map((user) => [user.username.toLowerCase(), user]));
+export function withCurrentSubmitterProfile<T extends RequestItem>(request: T, providedUsers?: StoredUser[]): T {
+  const users = providedUsers || loadUsersFromDB();
+  const usersByUsername = new Map(users.map((user) => [user.username.toLowerCase(), user]));
   if (!request.createdById) return withApprovalDisplayNames(request, usersByUsername);
-  const user = findUserById(request.createdById);
+  const user = users.find((u) => u.id === request.createdById) || findUserById(request.createdById);
   if (!user) return withApprovalDisplayNames(request, usersByUsername);
 
   return withApprovalDisplayNames({
@@ -48,8 +49,8 @@ export function withCurrentSubmitterProfile<T extends RequestItem>(request: T): 
   }, usersByUsername);
 }
 
-export function withCurrentSubmitterProfiles<T extends RequestItem>(requests: T[]): T[] {
-  const users = loadUsersFromDB();
+export function withCurrentSubmitterProfiles<T extends RequestItem>(requests: T[], providedUsers?: StoredUser[]): T[] {
+  const users = providedUsers || loadUsersFromDB();
   const usersById = new Map(users.map((user) => [user.id, user]));
   const usersByUsername = new Map(users.map((user) => [user.username.toLowerCase(), user]));
   return requests.map((request) => {
@@ -72,4 +73,14 @@ export function withCurrentSubmitterProfiles<T extends RequestItem>(requests: T[
       },
     }, usersByUsername);
   });
+}
+
+export async function withCurrentSubmitterProfilesAsync<T extends RequestItem>(requests: T[]): Promise<T[]> {
+  const users = await getAllUsersAsync({ includePhotos: false });
+  return withCurrentSubmitterProfiles(requests, users);
+}
+
+export async function withCurrentSubmitterProfileAsync<T extends RequestItem>(request: T): Promise<T> {
+  const users = await getAllUsersAsync({ includePhotos: false });
+  return withCurrentSubmitterProfile(request, users);
 }
