@@ -6,6 +6,7 @@ import { findUserById } from '@/lib/user-database';
 import { addNotificationsDB, addNotificationsAndSyncDB } from '@/lib/notification-db';
 import { withCurrentSubmitterProfiles } from '@/lib/request-profile';
 import { EXTENDED_DOCUMENT_MAX_BYTES, isValidDocumentUpload, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
+import { getSupabaseAdmin } from '@/lib/supabase';
 
 const approvalAuthorities: Record<string, { id: string; role: string }> = {
   hareeshv: { id: 'user-002', role: 'managing-partner' },
@@ -91,7 +92,12 @@ export async function GET(request: NextRequest) {
     return isAdminDashboardScope || isRequester || isCurrentApprover || isApprovalParticipant || isAssignedProjectMember || isFinallyApprovedProject;
   }).filter((item) => (isFounderOrAdmin || target === 'founder') ? true : item.target === target || target === 'all');
   if (requestId) {
-    const item = items.find((candidate) => candidate.id === requestId);
+    let item = items.find((candidate) => candidate.id === requestId);
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
+      if (data) item = data as RequestItem;
+    } catch {}
     if (!item) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     const enrichedItem = withCurrentSubmitterProfiles([item])[0];
     return NextResponse.json({ success: true, request: compact ? omitFileContents(enrichedItem) : enrichedItem });

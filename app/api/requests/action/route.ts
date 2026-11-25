@@ -51,14 +51,15 @@ export async function POST(request: NextRequest) {
     ]);
     if (caller instanceof NextResponse) return caller;
 
-    let current = getRequestByIdDB(requestId);
+    let current: any;
+    try {
+      const { getSupabaseAdmin } = require('@/lib/supabase');
+      const supabase = getSupabaseAdmin();
+      const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
+      if (data) current = data;
+    } catch {}
     if (!current) {
-      try {
-        const { getSupabaseAdmin } = require('@/lib/supabase');
-        const supabase = getSupabaseAdmin();
-        const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
-        if (data) current = data;
-      } catch {}
+      current = getRequestByIdDB(requestId);
     }
     if (!current) {
       return NextResponse.json({ error: 'Request not found' }, { status: 404 });

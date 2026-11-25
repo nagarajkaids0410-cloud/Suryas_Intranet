@@ -20,7 +20,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Provide a project and a final report of 20 to 20,000 characters' }, { status: 400 });
     }
 
-    const project = getRequestByIdDB(requestId);
+    let project = getRequestByIdDB(requestId);
+    if (!project) {
+      try {
+        const { getSupabaseAdmin } = require('@/lib/supabase');
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
+        if (data) project = data;
+      } catch {}
+    }
     if (!project || project.type !== 'proposal' || project.status !== 'approved') {
       return NextResponse.json({ error: 'Only an approved project can be closed' }, { status: 409 });
     }

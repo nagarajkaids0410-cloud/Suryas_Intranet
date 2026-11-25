@@ -23,7 +23,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'A project, valid task deadline, and between one and four team members are required' }, { status: 400 });
     }
 
-    const project = getRequestByIdDB(requestId);
+    let project = getRequestByIdDB(requestId);
+    if (!project) {
+      try {
+        const { getSupabaseAdmin } = require('@/lib/supabase');
+        const supabase = getSupabaseAdmin();
+        const { data } = await supabase.from('requests').select('*').eq('id', requestId).maybeSingle();
+        if (data) project = data;
+      } catch {}
+    }
     if (!project || project.type !== 'proposal') {
       return NextResponse.json({ error: 'Project proposal not found' }, { status: 404 });
     }
