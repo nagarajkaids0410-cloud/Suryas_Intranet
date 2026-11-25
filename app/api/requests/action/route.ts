@@ -110,10 +110,13 @@ export async function POST(request: NextRequest) {
     if (current.status === 'forwarded' && current.forwardedTo !== chain[stageIndex]) {
       return NextResponse.json({ error: 'Request approval stage is inconsistent' }, { status: 409 });
     }
-    if (caller.username.toLowerCase() !== chain[stageIndex].toLowerCase()) {
+    const isFounder = caller.role === 'founder' || caller.username.toLowerCase() === 'gkbharath';
+    const isCurrentStageApprover = caller.username.toLowerCase() === chain[stageIndex].toLowerCase();
+
+    if (!isCurrentStageApprover && !isFounder) {
       return NextResponse.json({ error: 'Forbidden: you are not the current approver' }, { status: 403 });
     }
-    const isAuthorizedLeader = !!authority && authority.id === caller.id && authority.role === caller.role;
+    const isAuthorizedLeader = isFounder || (!!authority && authority.id === caller.id && authority.role === caller.role);
     const isAssignedGuide = stageIndex === 0 &&
       requiresGuideRole(requesterRole || requester.role) &&
       guideId === caller.id &&
@@ -128,9 +131,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Only the allocated guide may submit a recommendation' }, { status: 403 });
     }
     const isFinalApprover =
-      stageIndex === chain.length - 1 &&
-      caller.username.toLowerCase() === chain.at(-1)?.toLowerCase() &&
-      isAuthorizedLeader;
+      isFounder || (
+        stageIndex === chain.length - 1 &&
+        caller.username.toLowerCase() === chain.at(-1)?.toLowerCase() &&
+        isAuthorizedLeader
+      );
     if (current.createdById === caller.id && !isFinalApprover) {
       return NextResponse.json({ error: 'You cannot act on your own request' }, { status: 403 });
     }
@@ -203,8 +208,8 @@ export async function POST(request: NextRequest) {
         }
         const actingUsername = caller.username;
 
-          // If there are remaining approvers, forward to next
-          if (idx + 1 < chain.length) {
+          // If there are remaining approvers and caller is NOT founder giving final approval, forward to next
+          if (idx + 1 < chain.length && !isFounder) {
             const nextApprover = chain[idx + 1];
             const comments = Array.isArray(currentPayload.comments) ? currentPayload.comments : [];
             const updated = await updateRequestStatusAndSyncDB(requestId, 'forwarded', {

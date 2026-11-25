@@ -25,7 +25,10 @@ export default function LeaveManagement() {
   const [selectedRequest, setSelectedRequest] = useState<any | null>(null);
   const [viewingFile, setViewingFile] = useState<any>(null);
 
+  const isFounderOrAdmin = user?.role === 'admin' || user?.role === 'founder' || user?.username?.toLowerCase() === 'gkbharath';
+
   const canActOnRequest = (request: any) => {
+    if (isFounderOrAdmin) return true;
     const chain = request.payload?.approvalChain;
     if (!Array.isArray(chain)) return false;
     const index = request.status === 'forwarded'

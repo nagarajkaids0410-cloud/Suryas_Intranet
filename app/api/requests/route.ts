@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
   const isFounderTeamAssigner = auth.role === 'founder' &&
     auth.username.toLowerCase() === 'gkbharath' &&
     auth.id === 'founder-001';
+  const isFounderOrAdmin = auth.role === 'admin' || (auth.role === 'founder' && auth.username.toLowerCase() === 'gkbharath') || auth.role === 'founder';
   const isAdminDashboardScope = target === 'all' &&
     searchParams.get('scope') === 'dashboard' &&
     (auth.role === 'admin' || (auth.role === 'founder' && auth.username.toLowerCase() === 'gkbharath' && auth.id === 'founder-001'));
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
   const items = allRequests.filter((item) => {
     if (requestedType && item.type !== requestedType) return false;
     if (mineOnly) return item.createdById === auth.id && item.type !== 'internal-service';
+    if (isFounderOrAdmin) return true;
     const chain = item.payload?.approvalChain;
     const stageIndex = item.status === 'forwarded'
       ? item.payload?.currentApproverIndex
@@ -87,7 +89,7 @@ export async function GET(request: NextRequest) {
       comments[0]?.by === 'gkbharath' &&
       comments[0]?.decision === 'approve';
     return isAdminDashboardScope || isRequester || isCurrentApprover || isApprovalParticipant || isAssignedProjectMember || isFinallyApprovedProject;
-  }).filter((item) => target === 'founder' ? true : item.target === target || target === 'all');
+  }).filter((item) => (isFounderOrAdmin || target === 'founder') ? true : item.target === target || target === 'all');
   if (requestId) {
     const item = items.find((candidate) => candidate.id === requestId);
     if (!item) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
@@ -188,6 +190,7 @@ export async function POST(request: NextRequest) {
       }
       const duplicateDate = getRequestsByTargetDB('all').some((item) => {
         if (item.type !== 'leave' || item.createdById !== auth.id) return false;
+        if (item.status === 'rejected' || item.status === 'cancelled') return false;
         const existingStart = item.payload?.fromDate;
         const existingEnd = item.payload?.toDate || existingStart;
         return typeof existingStart === 'string' &&

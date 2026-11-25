@@ -152,7 +152,8 @@ export default function TAClaimPage(): React.ReactNode {
       });
 
       if (!response.ok) {
-        toast.error('Failed to submit allowance claim');
+        const errorData = await response.json().catch(() => null);
+        toast.error(errorData?.error || 'Failed to submit allowance claim');
         return;
       }
 

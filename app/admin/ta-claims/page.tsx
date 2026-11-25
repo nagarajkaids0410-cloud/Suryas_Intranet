@@ -24,7 +24,10 @@ export default function TAClaims() {
   const [viewingFile, setViewingFile] = useState<any>(null);
   const [commentText, setCommentText] = useState('');
 
+  const isFounderOrAdmin = user?.role === 'admin' || user?.role === 'founder' || user?.username?.toLowerCase() === 'gkbharath';
+
   const canActOnRequest = (claim: any) => {
+    if (isFounderOrAdmin) return true;
     const chain = claim.payload?.approvalChain;
     if (!Array.isArray(chain)) return false;
     const index = claim.status === 'forwarded'

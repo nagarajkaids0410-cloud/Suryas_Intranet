@@ -38,7 +38,10 @@ export default function ApprovalsPage() {
   const [requestedRequestId, setRequestedRequestId] = useState('');
   const isRetentionApprover = ['hareeshv', 'santhanakumarv', 'gkbharath'].includes(user?.username?.toLowerCase() || '');
 
+  const isFounderOrAdmin = user?.role === 'admin' || user?.role === 'founder' || user?.username?.toLowerCase() === 'gkbharath';
+
   const canActOnRequest = (request: any) => {
+    if (isFounderOrAdmin) return true;
     const chain = request.payload?.approvalChain;
     if (!Array.isArray(chain)) return false;
     const index = request.status === 'forwarded'
