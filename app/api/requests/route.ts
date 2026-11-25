@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       }
       const duplicateDate = getRequestsByTargetDB('all').some((item) => {
         if (item.type !== 'leave' || item.createdById !== auth.id) return false;
-        if (item.status === 'rejected' || item.status === 'cancelled') return false;
+        if (item.status === 'rejected') return false;
         const existingStart = item.payload?.fromDate;
         const existingEnd = item.payload?.toDate || existingStart;
         return typeof existingStart === 'string' &&
