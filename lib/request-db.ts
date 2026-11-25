@@ -70,9 +70,10 @@ function writeDB(requests: RequestItem[]) {
 export async function fetchRequestsFromSupabase(): Promise<RequestItem[]> {
   try {
     const supabase = getSupabaseAdmin();
+    const cols = 'id,submissionId,type,title,status,target,createdBy,createdByUsername,createdById,createdByRole,createdByDesignation,createdByEmployeeId,createdByDepartment,createdByPhone,createdAt,updatedAt,forwardedTo,remarks,signatureFrom,payload';
     const { data, error } = await supabase
       .from('requests')
-      .select('*')
+      .select(cols)
       .order('createdAt', { ascending: false });
 
     if (!error && data) {
